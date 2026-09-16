@@ -5,8 +5,11 @@ from typing import Dict, Any
 
 class Settings:
     PROJECT_NAME: str = "Graph-Based EV Charging Station Optimization"
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.3.0"
     API_V1_STR: str = "/api"
+
+    # Default average vehicle travel speed in km/h for estimated ETA
+    DEFAULT_AVERAGE_SPEED_KMH: float = 40.0
 
     # Default coverage radius for Minimum Dominating Set (in kilometers)
     DEFAULT_COVERAGE_RADIUS_KM: float = 5.0

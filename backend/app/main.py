@@ -20,6 +20,12 @@ app.add_middleware(
 )
 
 
+# Register API routes
+from app.api.routes import router as api_router
+
+app.include_router(api_router)
+
+
 @app.get("/")
 def root():
     """Root health check endpoint."""
