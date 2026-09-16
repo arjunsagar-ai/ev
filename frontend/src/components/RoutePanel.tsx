@@ -1,0 +1,158 @@
+import React from 'react';
+import {
+  Navigation,
+  Clock,
+  MapPin,
+  ShieldCheck,
+  Zap,
+  Milestone,
+} from 'lucide-react';
+import { LiveRouteResponse } from '../types/routing';
+import { formatDistance, formatEta } from '../utils/coordinates';
+import { LocationButton } from './LocationButton';
+import { LoadingState } from './LoadingState';
+import { ErrorMessage } from './ErrorMessage';
+
+interface RoutePanelProps {
+  routeResponse: LiveRouteResponse | null;
+  isLoading: boolean;
+  loadingStep: 'gps' | 'routing' | null;
+  error: string | null;
+  onLocate: () => void;
+  onClearError?: () => void;
+}
+
+export const RoutePanel: React.FC<RoutePanelProps> = ({
+  routeResponse,
+  isLoading,
+  loadingStep,
+  error,
+  onLocate,
+  onClearError,
+}) => {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-lg p-5 flex flex-col space-y-4">
+      {/* Action Button */}
+      <div>
+        <LocationButton
+          onClick={onLocate}
+          isLoading={isLoading}
+          isError={!!error}
+          loadingStep={loadingStep}
+        />
+      </div>
+
+      {/* Loading State Feedback */}
+      {isLoading && loadingStep && (
+        <LoadingState step={loadingStep} />
+      )}
+
+      {/* Error Message Display */}
+      {error && !isLoading && (
+        <ErrorMessage
+          message={error}
+          onDismiss={onClearError}
+          onRetry={onLocate}
+        />
+      )}
+
+      {/* Active Route Summary Card */}
+      {routeResponse && !isLoading && !error && (
+        <div className="bg-gradient-to-br from-emerald-50 to-teal-50/40 border border-emerald-200/70 rounded-xl p-4 space-y-3.5">
+          {/* Status Badge & Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+                <Zap className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Destination Station
+                </h3>
+                <p className="text-sm font-bold text-gray-900">
+                  {routeResponse.station.candidate_id}
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              ● Route found
+            </span>
+          </div>
+
+          <p className="text-xs text-emerald-800 font-medium">
+            Nearest feasible charging station
+          </p>
+
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            {/* Distance Card */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-lg p-3 border border-emerald-100/80 shadow-xs">
+              <div className="flex items-center space-x-1.5 text-gray-500 mb-1">
+                <Milestone className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-medium">Distance</span>
+              </div>
+              <p className="text-lg font-extrabold text-gray-900 tracking-tight">
+                {formatDistance(routeResponse.route.distance_km)}
+              </p>
+            </div>
+
+            {/* Travel Time Card */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-lg p-3 border border-emerald-100/80 shadow-xs">
+              <div className="flex items-center space-x-1.5 text-gray-500 mb-1">
+                <Clock className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-medium">Est. Travel Time</span>
+              </div>
+              <p className="text-lg font-extrabold text-gray-900 tracking-tight">
+                {formatEta(routeResponse.route.estimated_eta_minutes)}
+              </p>
+            </div>
+          </div>
+
+          {/* Technical Route Details */}
+          <div className="text-xs text-gray-600 border-t border-emerald-200/60 pt-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center text-gray-500">
+                <MapPin className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                Snapped Road Node:
+              </span>
+              <span className="font-mono text-gray-800 font-semibold">
+                {String(routeResponse.snapped_node)} ({Math.round(routeResponse.distance_to_snapped_node_m)}m away)
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="flex items-center text-gray-500">
+                <Navigation className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                Route Segments:
+              </span>
+              <span className="font-mono text-gray-800">
+                {routeResponse.route.node_ids.length} road nodes
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Initial Guidance Card when no route has been fetched */}
+      {!routeResponse && !isLoading && !error && (
+        <div className="bg-gray-50/80 border border-dashed border-gray-300 rounded-xl p-4 text-center">
+          <div className="inline-flex p-3 rounded-full bg-emerald-50 text-emerald-600 mb-2">
+            <Navigation className="w-5 h-5" />
+          </div>
+          <h4 className="text-sm font-semibold text-gray-800">
+            Ready to Navigate
+          </h4>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            Click <strong>Use My Location</strong> to find the nearest feasible charging station and calculate the Dijkstra route.
+          </p>
+        </div>
+      )}
+
+      {/* Privacy Notice Footer */}
+      <div className="flex items-center justify-center space-x-1.5 text-[11px] text-gray-400 pt-1">
+        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+        <span>Location is processed ephemerally and never stored</span>
+      </div>
+    </div>
+  );
+};

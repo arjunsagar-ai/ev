@@ -8,6 +8,15 @@ class Settings:
     VERSION: str = "0.3.0"
     API_V1_STR: str = "/api"
 
+    # Allowed CORS origins for frontend integration
+    CORS_ORIGINS: list = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*",
+    ]
+
     # Default average vehicle travel speed in km/h for estimated ETA
     DEFAULT_AVERAGE_SPEED_KMH: float = 40.0
 

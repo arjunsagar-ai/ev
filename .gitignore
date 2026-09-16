@@ -18,3 +18,13 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+.env.*.local
