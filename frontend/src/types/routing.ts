@@ -84,3 +84,45 @@ export interface DominatingSetResponse {
   algorithm: string;
 }
 
+// ── Phase 5B: Hungarian EV Assignment types ───────────────────────
+
+export interface EVLocationInput {
+  ev_id: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface AssignmentRequest {
+  evs: EVLocationInput[];
+  station_ids?: string[];
+  coverage_radius_km?: number;
+  min_feasibility_score?: number;
+  max_stations?: number;
+  cost_metric?: string;
+}
+
+export interface EVAssignment {
+  ev_id: string;
+  station_id: string;
+  cost_km: number;
+  ev_latitude: number;
+  ev_longitude: number;
+  station_latitude: number;
+  station_longitude: number;
+  path_coordinates?: [number, number][];
+}
+
+export interface AssignmentResponse {
+  algorithm: string;
+  cost_metric: string;
+  ev_count: number;
+  station_count: number;
+  assigned_count: number;
+  unassigned_count: number;
+  assignments: EVAssignment[];
+  unassigned_ev_ids: string[];
+  unassigned_station_ids: string[];
+  total_cost_km: number;
+}
+
+

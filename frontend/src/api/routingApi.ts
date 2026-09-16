@@ -1,4 +1,6 @@
 import {
+  AssignmentRequest,
+  AssignmentResponse,
   DominatingSetRequest,
   DominatingSetResponse,
   HealthResponse,
@@ -82,6 +84,43 @@ export async function fetchDominatingSetOptimization(
 
     if (response.status >= 500) {
       throw new Error('Station optimization service is currently unavailable.');
+    }
+
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}
+
+export async function fetchHungarianAssignment(
+  request: AssignmentRequest
+): Promise<AssignmentResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/optimize/assignment`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new Error('Unable to connect to the assignment optimization server. Please check your network connection.');
+  }
+
+  if (!response.ok) {
+    let errorDetail = 'Hungarian assignment service encountered an error.';
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch {
+      errorDetail = `Server responded with status ${response.status}: ${response.statusText}`;
+    }
+
+    if (response.status >= 500) {
+      throw new Error('Assignment optimization service is currently unavailable.');
     }
 
     throw new Error(errorDetail);

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.api.schemas import (
+    AssignmentRequest,
+    AssignmentResponse,
     DominatingSetRequest,
     DominatingSetResponse,
     HealthResponse,
@@ -15,6 +17,10 @@ from app.services.routing_service import RoutingService, get_routing_service
 from app.services.station_optimization_service import (
     StationOptimizationService,
     get_station_optimization_service,
+)
+from app.services.assignment_service import (
+    AssignmentService,
+    get_assignment_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,4 +158,49 @@ def post_dominating_set_optimization(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while calculating the dominating set.",
         )
+
+
+@router.post(
+    "/optimize/assignment",
+    response_model=AssignmentResponse,
+    summary="Assign EVs to charging stations using Hungarian algorithm",
+    description=(
+        "Executes Kuhn-Munkres (Hungarian) minimum weight bipartite matching to "
+        "optimally assign electric vehicles to charging stations based on road network "
+        "travel distance or geographic distance cost matrix."
+    ),
+    responses={
+        400: {"description": "Invalid assignment input or coordinates."},
+        500: {"description": "Internal error during Hungarian matching."},
+    },
+)
+def post_hungarian_assignment(
+    request: AssignmentRequest,
+    service: AssignmentService = Depends(get_assignment_service),
+) -> AssignmentResponse:
+    """Execute Hungarian optimal bipartite matching for EV-to-station assignment."""
+    try:
+        evs_data = [ev.model_dump() for ev in request.evs]
+        result = service.assign_evs_to_stations(
+            evs=evs_data,
+            station_ids=request.station_ids,
+            coverage_radius_km=request.coverage_radius_km,
+            min_feasibility_score=request.min_feasibility_score,
+            max_stations=request.max_stations,
+            cost_metric=request.cost_metric or "network_distance_km",
+        )
+        return AssignmentResponse(**result)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Hungarian assignment validation error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Unexpected error during Hungarian assignment: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while calculating EV-to-station assignments.",
+        )
+
 

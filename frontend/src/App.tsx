@@ -7,8 +7,18 @@ import {
 import { MapView } from './components/MapView';
 import { RoutePanel } from './components/RoutePanel';
 import { useGeolocation } from './hooks/useGeolocation';
-import { fetchLiveRoute, fetchHealth, fetchDominatingSetOptimization } from './api/routingApi';
-import { LiveRouteResponse, UserCoordinates, DominatingSetResponse } from './types/routing';
+import {
+  fetchLiveRoute,
+  fetchHealth,
+  fetchDominatingSetOptimization,
+  fetchHungarianAssignment,
+} from './api/routingApi';
+import {
+  LiveRouteResponse,
+  UserCoordinates,
+  DominatingSetResponse,
+  AssignmentResponse,
+} from './types/routing';
 
 export const App: React.FC = () => {
   const {
@@ -31,6 +41,11 @@ export const App: React.FC = () => {
   const [mdsResponse, setMdsResponse] = useState<DominatingSetResponse | null>(null);
   const [mdsLoading, setMdsLoading] = useState<boolean>(false);
   const [mdsError, setMdsError] = useState<string | null>(null);
+
+  // Phase 5B: Hungarian Bipartite Assignment state
+  const [hungarianResponse, setHungarianResponse] = useState<AssignmentResponse | null>(null);
+  const [hungarianLoading, setHungarianLoading] = useState<boolean>(false);
+  const [hungarianError, setHungarianError] = useState<string | null>(null);
 
   // Health / Backend status
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
@@ -173,6 +188,53 @@ export const App: React.FC = () => {
     setMdsError(null);
   };
 
+  /**
+   * Phase 5B: Assign EVs to selected charging stations using Hungarian algorithm.
+   */
+  const handleAssignHungarian = async () => {
+    setHungarianError(null);
+    setHungarianLoading(true);
+
+    // Build deterministic EV list: use activeCoords if available + fleet vehicles
+    const evList = activeCoords
+      ? [
+          { ev_id: 'User-EV', latitude: activeCoords.latitude, longitude: activeCoords.longitude },
+          { ev_id: 'Fleet-EV2', latitude: 10.003, longitude: 76.305 },
+          { ev_id: 'Fleet-EV3', latitude: 10.007, longitude: 76.312 },
+        ]
+      : [
+          { ev_id: 'Fleet-EV1', latitude: 10.001, longitude: 76.302 },
+          { ev_id: 'Fleet-EV2', latitude: 10.003, longitude: 76.305 },
+          { ev_id: 'Fleet-EV3', latitude: 10.007, longitude: 76.312 },
+        ];
+
+    const stationIds = mdsResponse?.selected_stations?.map((s) => s.candidate_id);
+
+    try {
+      const result = await fetchHungarianAssignment({
+        evs: evList,
+        station_ids: stationIds && stationIds.length > 0 ? stationIds : undefined,
+        coverage_radius_km: 0.5,
+        cost_metric: 'network_distance_km',
+      });
+      setHungarianResponse(result);
+    } catch (err: unknown) {
+      setHungarianResponse(null);
+      if (err instanceof Error) {
+        setHungarianError(err.message);
+      } else {
+        setHungarianError('An error occurred calculating Hungarian EV assignments.');
+      }
+    } finally {
+      setHungarianLoading(false);
+    }
+  };
+
+  const handleClearHungarian = () => {
+    setHungarianResponse(null);
+    setHungarianError(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* ── Global Header ────────────────────────────────────────── */}
@@ -233,6 +295,7 @@ export const App: React.FC = () => {
               userCoordinates={activeCoords}
               routeResponse={routeResponse}
               mdsStations={mdsResponse?.selected_stations}
+              hungarianResponse={hungarianResponse}
             />
           </div>
 
@@ -250,6 +313,11 @@ export const App: React.FC = () => {
               mdsError={mdsError}
               onOptimizeMds={handleOptimizeMds}
               onClearMds={handleClearMds}
+              hungarianResponse={hungarianResponse}
+              hungarianLoading={hungarianLoading}
+              hungarianError={hungarianError}
+              onAssignHungarian={handleAssignHungarian}
+              onClearHungarian={handleClearHungarian}
             />
 
             {/* Quick Testing Card for Offline / Desktop environments */}

@@ -9,8 +9,13 @@ import {
   Layers,
   Loader2,
   X,
+  ArrowRightLeft,
 } from 'lucide-react';
-import { DominatingSetResponse, LiveRouteResponse } from '../types/routing';
+import {
+  AssignmentResponse,
+  DominatingSetResponse,
+  LiveRouteResponse,
+} from '../types/routing';
 import { formatDistance, formatEta } from '../utils/coordinates';
 import { LocationButton } from './LocationButton';
 import { LoadingState } from './LoadingState';
@@ -30,6 +35,13 @@ interface RoutePanelProps {
   mdsError: string | null;
   onOptimizeMds: () => void;
   onClearMds?: () => void;
+
+  // Phase 5B: Hungarian Assignment props
+  hungarianResponse: AssignmentResponse | null;
+  hungarianLoading: boolean;
+  hungarianError: string | null;
+  onAssignHungarian: () => void;
+  onClearHungarian?: () => void;
 }
 
 export const RoutePanel: React.FC<RoutePanelProps> = ({
@@ -44,6 +56,11 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
   mdsError,
   onOptimizeMds,
   onClearMds,
+  hungarianResponse,
+  hungarianLoading,
+  hungarianError,
+  onAssignHungarian,
+  onClearHungarian,
 }) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200/80 shadow-lg p-5 flex flex-col space-y-4">
@@ -78,7 +95,38 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
             </>
           )}
         </button>
+
+        {/* Phase 5B: Hungarian Bipartite Assignment Action Button */}
+        <button
+          type="button"
+          onClick={onAssignHungarian}
+          disabled={hungarianLoading || isLoading}
+          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-amber-200 
+            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none 
+            focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 bg-amber-50 hover:bg-amber-100 
+            text-amber-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
+        >
+          {hungarianLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin mr-2 text-amber-600" />
+              <span>Calculating Hungarian matching...</span>
+            </>
+          ) : (
+            <>
+              <ArrowRightLeft className="w-4 h-4 mr-2 text-amber-600" />
+              <span>Assign EVs to Stations</span>
+            </>
+          )}
+        </button>
       </div>
+
+      {/* Hungarian Error Message Display */}
+      {hungarianError && !hungarianLoading && (
+        <ErrorMessage
+          message={hungarianError}
+          onRetry={onAssignHungarian}
+        />
+      )}
 
       {/* MDS Error Message Display */}
       {mdsError && !mdsLoading && (
@@ -86,6 +134,97 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           message={mdsError}
           onRetry={onOptimizeMds}
         />
+      )}
+
+      {/* Hungarian EV Assignment Summary Card */}
+      {hungarianResponse && !hungarianLoading && !hungarianError && (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50/40 border border-amber-200/80 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-600 text-white shadow-xs">
+                <ArrowRightLeft className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Hungarian Matching
+                </h3>
+                <p className="text-sm font-bold text-gray-900">
+                  EV Slot Assignment
+                </p>
+              </div>
+            </div>
+            {onClearHungarian && (
+              <button
+                type="button"
+                onClick={onClearHungarian}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                title="Hide Hungarian matching"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+            <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+              <span className="text-gray-500 block">EVs / Stations</span>
+              <span className="text-sm font-bold text-gray-900">
+                {hungarianResponse.ev_count} / {hungarianResponse.station_count}
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+              <span className="text-gray-500 block">Assigned / Unassigned</span>
+              <span className="text-sm font-bold text-amber-800">
+                {hungarianResponse.assigned_count} / {hungarianResponse.unassigned_count}
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+              <span className="text-gray-500 block">Total Cost</span>
+              <span className="text-sm font-bold text-gray-900">
+                {hungarianResponse.total_cost_km} km
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+              <span className="text-gray-500 block">Cost Metric</span>
+              <span className="text-sm font-bold text-gray-900 capitalize">
+                {hungarianResponse.cost_metric === 'network_distance_km'
+                  ? 'Network Distance'
+                  : 'Geographic Distance'}
+              </span>
+            </div>
+          </div>
+
+          {/* List of Matched Pairs */}
+          <div className="space-y-1.5 pt-1">
+            <span className="text-[11px] font-semibold text-gray-500 uppercase">
+              Matched Pairs
+            </span>
+            <div className="space-y-1 max-h-32 overflow-y-auto pr-1 text-xs">
+              {hungarianResponse.assignments.map((asgn) => (
+                <div
+                  key={`asgn-list-${asgn.ev_id}-${asgn.station_id}`}
+                  className="flex items-center justify-between bg-white/70 px-2.5 py-1.5 rounded-md border border-amber-100"
+                >
+                  <span className="font-medium text-gray-800">
+                    {asgn.ev_id} &rarr; <span className="text-purple-700 font-bold">{asgn.station_id}</span>
+                  </span>
+                  <span className="text-gray-500 font-mono text-[11px]">
+                    {asgn.cost_km} km
+                  </span>
+                </div>
+              ))}
+              {hungarianResponse.unassigned_ev_ids && hungarianResponse.unassigned_ev_ids.length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 px-2.5 py-1.5 rounded-md text-[11px]">
+                  Unassigned: {hungarianResponse.unassigned_ev_ids.join(', ')}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-gray-500 leading-tight border-t border-amber-100 pt-2">
+            Kuhn-Munkres minimum-cost bipartite matching over the distance cost matrix.
+          </p>
+        </div>
       )}
 
       {/* MDS Station Placement Summary Card */}

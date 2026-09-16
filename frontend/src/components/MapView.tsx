@@ -10,6 +10,7 @@ import {
 import L, { LatLngBoundsExpression } from 'leaflet';
 import { StationMarker } from './StationMarker';
 import {
+  AssignmentResponse,
   DominatingSetStation,
   LiveRouteResponse,
   UserCoordinates,
@@ -20,6 +21,7 @@ interface MapViewProps {
   userCoordinates: UserCoordinates | null;
   routeResponse: LiveRouteResponse | null;
   mdsStations?: DominatingSetStation[] | null;
+  hungarianResponse?: AssignmentResponse | null;
 }
 
 // Neutral default center (near sample network area)
@@ -60,19 +62,50 @@ const userMarkerIcon = L.divIcon({
   popupAnchor: [0, -14],
 });
 
+// Custom Amber EV Location Marker for Hungarian Matching
+const evMarkerIcon = (label: string) =>
+  L.divIcon({
+    className: 'custom-ev-marker',
+    html: `
+      <div style="
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        background: #f59e0b;
+        color: white;
+        border: 2px solid white;
+        border-radius: 12px;
+        padding: 2px 7px;
+        font-size: 11px;
+        font-weight: 700;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+        white-space: nowrap;
+      ">
+        <span style="font-size: 11px;">⚡</span>
+        <span>${label}</span>
+      </div>
+    `,
+    iconSize: [60, 24],
+    iconAnchor: [30, 12],
+    popupAnchor: [0, -14],
+  });
+
 /**
- * Helper component that auto-centers or fits bounds on location/route updates.
+ * Helper component that auto-centers or fits bounds on location/route/assignment updates.
  * Avoids recentering on every manual pan/zoom.
  */
 const MapAutoBounds: React.FC<{
   userCoordinates: UserCoordinates | null;
   routeCoordinates?: [number, number][];
   mdsStations?: DominatingSetStation[] | null;
-}> = ({ userCoordinates, routeCoordinates, mdsStations }) => {
+  hungarianResponse?: AssignmentResponse | null;
+}> = ({ userCoordinates, routeCoordinates, mdsStations, hungarianResponse }) => {
   const map = useMap();
   const prevRouteRef = useRef<string | null>(null);
   const prevUserRef = useRef<string | null>(null);
   const prevMdsRef = useRef<string | null>(null);
+  const prevHungarianRef = useRef<string | null>(null);
 
   useEffect(() => {
     // 1. If route coordinates exist and changed, fit the view to encompass the entire route
@@ -86,7 +119,28 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 2. If MDS stations exist and changed (and no active route), fit view to stations
+    // 2. If Hungarian assignments exist and changed (and no active route), fit view to assignments
+    if (
+      hungarianResponse?.assignments &&
+      hungarianResponse.assignments.length > 0 &&
+      (!routeCoordinates || routeCoordinates.length === 0)
+    ) {
+      const hKey = hungarianResponse.assignments.map((a) => `${a.ev_id}->${a.station_id}`).join(',');
+      if (hKey !== prevHungarianRef.current) {
+        prevHungarianRef.current = hKey;
+        const allPoints: [number, number][] = [];
+        hungarianResponse.assignments.forEach((a) => {
+          allPoints.push([a.ev_latitude, a.ev_longitude]);
+          allPoints.push([a.station_latitude, a.station_longitude]);
+        });
+        if (allPoints.length > 0) {
+          map.fitBounds(allPoints, { padding: [60, 60], maxZoom: 15 });
+          return;
+        }
+      }
+    }
+
+    // 3. If MDS stations exist and changed (and no active route), fit view to stations
     if (mdsStations && mdsStations.length > 0 && (!routeCoordinates || routeCoordinates.length === 0)) {
       const mdsKey = mdsStations.map((s) => s.candidate_id).join(',');
       if (mdsKey !== prevMdsRef.current) {
@@ -97,7 +151,7 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 3. Otherwise, if user location just became available, pan to user
+    // 4. Otherwise, if user location just became available, pan to user
     if (userCoordinates) {
       const userKey = `${userCoordinates.latitude},${userCoordinates.longitude}`;
       if (userKey !== prevUserRef.current) {
@@ -105,7 +159,7 @@ const MapAutoBounds: React.FC<{
         map.setView([userCoordinates.latitude, userCoordinates.longitude], 15);
       }
     }
-  }, [map, userCoordinates, routeCoordinates, mdsStations]);
+  }, [map, userCoordinates, routeCoordinates, mdsStations, hungarianResponse]);
 
   return null;
 };
@@ -114,6 +168,7 @@ export const MapView: React.FC<MapViewProps> = ({
   userCoordinates,
   routeResponse,
   mdsStations,
+  hungarianResponse,
 }) => {
   const routePolyline = routeResponse?.route?.coordinates;
 
@@ -140,6 +195,8 @@ export const MapView: React.FC<MapViewProps> = ({
         <MapAutoBounds
           userCoordinates={userCoordinates}
           routeCoordinates={routePolyline}
+          mdsStations={mdsStations}
+          hungarianResponse={hungarianResponse}
         />
 
         {/* User GPS Location Marker */}
@@ -218,6 +275,74 @@ export const MapView: React.FC<MapViewProps> = ({
             />
           </>
         )}
+
+        {/* Phase 5B: Hungarian EV Markers and Assignment Polylines */}
+        {hungarianResponse?.assignments &&
+          hungarianResponse.assignments.map((asgn) => {
+            const isUserLocation =
+              userCoordinates &&
+              Math.abs(userCoordinates.latitude - asgn.ev_latitude) < 0.0001 &&
+              Math.abs(userCoordinates.longitude - asgn.ev_longitude) < 0.0001;
+
+            const pathPositions: [number, number][] =
+              asgn.path_coordinates && asgn.path_coordinates.length > 0
+                ? (asgn.path_coordinates as [number, number][])
+                : [
+                    [asgn.ev_latitude, asgn.ev_longitude],
+                    [asgn.station_latitude, asgn.station_longitude],
+                  ];
+
+            return (
+              <React.Fragment key={`hungarian-${asgn.ev_id}-${asgn.station_id}`}>
+                {/* Render distinct EV marker if not at user's exact current pin */}
+                {!isUserLocation && (
+                  <Marker
+                    position={[asgn.ev_latitude, asgn.ev_longitude]}
+                    icon={evMarkerIcon(asgn.ev_id)}
+                  >
+                    <Popup>
+                      <div className="p-1 text-xs">
+                        <div className="flex items-center space-x-1.5 font-bold text-gray-900 pb-1 border-b border-gray-100">
+                          <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                          <span>Vehicle {asgn.ev_id}</span>
+                        </div>
+                        <p className="text-gray-600 mt-1">
+                          Matched to Station: <strong>{asgn.station_id}</strong>
+                        </p>
+                        <p className="text-gray-500 mt-0.5">
+                          Cost: <strong>{asgn.cost_km} km</strong>
+                        </p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                )}
+
+                {/* Orange Dashed Hungarian Assignment Polyline */}
+                <Polyline
+                  positions={pathPositions}
+                  pathOptions={{
+                    color: '#ea580c',
+                    weight: 3.5,
+                    dashArray: '6, 8',
+                    opacity: 0.9,
+                    lineCap: 'round',
+                  }}
+                >
+                  <Popup>
+                    <div className="p-1 text-xs">
+                      <p className="font-bold text-orange-700">Hungarian Matching</p>
+                      <p className="text-gray-700 mt-0.5">
+                        <strong>{asgn.ev_id}</strong> &rarr; <strong>{asgn.station_id}</strong>
+                      </p>
+                      <p className="text-gray-500 mt-0.5">
+                        Distance: <strong>{asgn.cost_km} km</strong>
+                      </p>
+                    </div>
+                  </Popup>
+                </Polyline>
+              </React.Fragment>
+            );
+          })}
       </MapContainer>
     </div>
   );

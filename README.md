@@ -37,8 +37,14 @@ An optimization platform integrating graph algorithms, GIS geospatial analysis, 
   - REST endpoint `POST /api/optimize/dominating-set` supporting configurable coverage radius and feasibility thresholds
   - Frontend "Optimize Charging Stations" button rendering coverage-oriented station markers and coverage statistics
   - 143 automated unit, integration, and API tests passing
+- **Phase 5B (Hungarian EV-to-Station Assignment)**: **COMPLETE**
+  - Kuhn-Munkres (Hungarian) optimal bipartite matching service connecting EVs to MDS-selected charging stations
+  - Automated cost matrix generation supporting network distance via Dijkstra shortest paths with geodesic Haversine fallback
+  - REST endpoint `POST /api/optimize/assignment` supporting rectangular matrices, unassigned EV tracking, and unassigned station reporting
+  - Frontend "Assign EVs to Stations" controls, orange dashed matching polylines, and detailed matching summary metrics
+  - 164 automated unit, integration, and API tests passing
 - **Future Phases**:
-  - Phase 5B+: Prim's MST grid design, Hungarian matching, and Ford-Fulkerson max-flow integrations
+  - Phase 5C+: Prim's MST electrical grid interconnection and Ford-Fulkerson maximum power flow min-cut analysis
 
 ---
 
@@ -75,8 +81,46 @@ The user-facing website allows EV drivers to locate the nearest feasible chargin
 | `GET` | `/api/gis/network` | Road network metadata (`node_count`, `edge_count`, `data_source`) |
 | `POST` | `/api/route/live` | Live GPS route calculation to the nearest feasible EV charging station |
 | `POST` | `/api/optimize/dominating-set` | Greedy MDS calculation for network-wide optimal EV charging station placement |
+| `POST` | `/api/optimize/assignment` | Kuhn-Munkres (Hungarian) minimum-cost bipartite EV-to-station assignment |
 | `GET` | `/docs` | Interactive Swagger UI API documentation |
 | `GET` | `/openapi.json` | OpenAPI 3.1 JSON specification |
+
+---
+
+## EV-to-Station Bipartite Assignment (Phase 5B)
+
+The assignment layer connects multiple electric vehicles to charging stations selected by the Minimum Dominating Set (MDS) layer.
+
+```
+Live GPS / EV Locations
+        ↓
+MDS Selected Stations
+        ↓
+Cost Matrix (N EVs × M Stations)
+        ↓
+Hungarian Algorithm (Kuhn-Munkres)
+        ↓
+EV → Station Assignments
+```
+
+### Separation of Responsibilities: MDS vs. Hungarian
+- **Minimum Dominating Set (MDS)**: Determines a strategic, coverage-oriented set of charging stations across the road network topology.
+- **Hungarian Algorithm**: Solves the linear sum assignment problem to pair specific vehicles with available stations while minimizing total network assignment distance. Hungarian does **not** select stations independently; it assigns to the stations nominated by MDS (or supplied via station IDs).
+
+### Cost Matrix & Metric
+- **Rows**: Electric Vehicles ($N$)
+- **Columns**: MDS-Selected Charging Stations ($M$)
+- **Primary Metric (`network_distance_km`)**: Shortest road-network distance calculated via Dijkstra's algorithm between each vehicle's snapped road vertex and the station's vertex.
+- **Explicit Fallback (`geographic_distance_km`)**: If vehicle snapping is not possible or the road graph is disconnected, geodesic Haversine distance is used uniformly across the entire cost matrix to avoid unit mixing.
+
+### Rectangular Matrices & Unassigned Vehicles
+- When the number of vehicles exceeds available station slots ($N > M$), the Hungarian algorithm assigns all $M$ slots to the $M$ vehicles that minimize total cost, reporting the remaining $N - M$ vehicles in `unassigned_ev_ids`.
+- When available stations exceed vehicles ($M > N$), all reachable vehicles are matched, and unused stations are reported in `unassigned_station_ids`.
+- Unreachable EV-station pairings on disconnected graph components are penalized and excluded rather than forced.
+
+### Algorithm Transparency & Limitations
+- The Hungarian algorithm provides an exact mathematical optimum for the **supplied cost matrix**.
+- It does not model dynamic traffic conditions, station queue wait times, or grid load fluctuations.
 
 ### Privacy & Ephemeral Location Handling
 - **Zero Permanent Storage**: User GPS coordinates are processed exclusively in memory during the request lifecycle.
@@ -117,7 +161,7 @@ cd backend
 source ../.venv/bin/activate
 pip install -r requirements.txt
 
-# Run ground-truth tests (128 tests)
+# Run ground-truth tests (164 tests)
 pytest -q
 
 # Start backend server

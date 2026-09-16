@@ -136,3 +136,79 @@ class DominatingSetResponse(BaseModel):
         description="Algorithm designation (greedy set-cover approximation)",
     )
 
+
+# ── Phase 5B: Hungarian Algorithm Assignment schemas ───────────────
+
+class EVLocationInput(BaseModel):
+    """Input representation of an EV location for assignment."""
+    ev_id: str = Field(..., description="Unique identifier for the electric vehicle (e.g. EV-001)")
+    latitude: float = Field(..., description="Latitude coordinate in decimal degrees", ge=-90.0, le=90.0)
+    longitude: float = Field(..., description="Longitude coordinate in decimal degrees", ge=-180.0, le=180.0)
+
+
+class AssignmentRequest(BaseModel):
+    """Request payload for assigning EVs to charging stations using Hungarian algorithm."""
+    evs: List[EVLocationInput] = Field(
+        ...,
+        description="List of EV positions requiring charging assignment",
+    )
+    station_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of candidate/station IDs to assign to. If omitted, MDS-selected stations will be used.",
+    )
+    coverage_radius_km: Optional[float] = Field(
+        default=None,
+        description="Coverage radius in km for dynamic MDS station selection if station_ids omitted",
+        gt=0,
+    )
+    min_feasibility_score: Optional[float] = Field(
+        default=None,
+        description="Minimum feasibility score threshold for dynamic candidate filtering",
+        ge=0.0,
+        le=1.0,
+    )
+    max_stations: Optional[int] = Field(
+        default=None,
+        description="Optional maximum stations limit",
+        gt=0,
+    )
+    cost_metric: Optional[str] = Field(
+        default="network_distance_km",
+        description="Preferred cost metric: 'network_distance_km' (default) or 'geographic_distance_km'",
+    )
+
+
+class EVAssignment(BaseModel):
+    """Single EV-to-station assignment result."""
+    ev_id: str = Field(..., description="EV identifier")
+    station_id: str = Field(..., description="Assigned charging station ID")
+    cost_km: float = Field(..., description="Assignment cost in kilometers")
+    ev_latitude: float = Field(..., description="EV latitude coordinate")
+    ev_longitude: float = Field(..., description="EV longitude coordinate")
+    station_latitude: float = Field(..., description="Station latitude coordinate")
+    station_longitude: float = Field(..., description="Station longitude coordinate")
+    path_coordinates: Optional[List[List[float]]] = Field(
+        default=None,
+        description="Polyline coordinates [[lat, lon], ...] connecting EV and station",
+    )
+
+
+class AssignmentResponse(BaseModel):
+    """Response payload for Hungarian bipartite EV-to-station assignment."""
+    algorithm: str = Field(
+        default="hungarian",
+        description="Algorithm designation (Kuhn-Munkres minimum weight bipartite matching)",
+    )
+    cost_metric: str = Field(
+        ...,
+        description="Distance metric used: 'network_distance_km' or 'geographic_distance_km'",
+    )
+    ev_count: int = Field(..., description="Total number of EVs in request")
+    station_count: int = Field(..., description="Total number of candidate stations evaluated")
+    assigned_count: int = Field(..., description="Number of successful assignments")
+    unassigned_count: int = Field(..., description="Number of unassigned EVs")
+    assignments: List[EVAssignment] = Field(..., description="List of EV-to-station assignments")
+    unassigned_ev_ids: List[str] = Field(default_factory=list, description="List of EV IDs that could not be assigned")
+    unassigned_station_ids: List[str] = Field(default_factory=list, description="List of station IDs not assigned to any EV")
+    total_cost_km: float = Field(..., description="Total assignment cost across all matched pairs in km")
+
