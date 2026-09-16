@@ -4,12 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.api.schemas import (
+    DominatingSetRequest,
+    DominatingSetResponse,
     HealthResponse,
     LiveRouteRequest,
     LiveRouteResponse,
     NetworkInfoResponse,
 )
 from app.services.routing_service import RoutingService, get_routing_service
+from app.services.station_optimization_service import (
+    StationOptimizationService,
+    get_station_optimization_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,3 +112,44 @@ def post_live_route(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while calculating the route.",
         )
+
+
+@router.post(
+    "/optimize/dominating-set",
+    response_model=DominatingSetResponse,
+    summary="Compute greedy Minimum Dominating Set station placement",
+    description=(
+        "Executes a greedy set-cover approximation of the Minimum Dominating Set (MDS) "
+        "to select a subset of feasible EV charging station candidates providing maximal "
+        "coverage across road network demand nodes within the specified radius."
+    ),
+    responses={
+        400: {"description": "Invalid optimization parameters."},
+        503: {"description": "Road network or candidate generator unavailable."},
+    },
+)
+def post_dominating_set_optimization(
+    request: DominatingSetRequest = DominatingSetRequest(),
+    service: StationOptimizationService = Depends(get_station_optimization_service),
+) -> DominatingSetResponse:
+    """Execute greedy MDS charging station placement optimization."""
+    try:
+        result = service.optimize_station_placement(
+            coverage_radius_km=request.coverage_radius_km,
+            min_feasibility_score=request.min_feasibility_score,
+            max_stations=request.max_stations,
+        )
+        return DominatingSetResponse(**result)
+    except (ValueError, TypeError) as exc:
+        logger.warning("MDS optimization validation error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Unexpected error during MDS optimization: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while calculating the dominating set.",
+        )
+

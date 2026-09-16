@@ -32,8 +32,13 @@ An optimization platform integrating graph algorithms, GIS geospatial analysis, 
   - "Use My Location" action triggering full end-to-end routing pipeline
   - Real-time route polyline rendering, station markers, distance, and estimated travel time
   - Clean error and loading feedback states with privacy protection
+- **Phase 5A (MDS-Based Optimal EV Charging Station Placement)**: **COMPLETE**
+  - Greedy Minimum Dominating Set optimization service mapping feasible candidates to road graph coverage
+  - REST endpoint `POST /api/optimize/dominating-set` supporting configurable coverage radius and feasibility thresholds
+  - Frontend "Optimize Charging Stations" button rendering coverage-oriented station markers and coverage statistics
+  - 143 automated unit, integration, and API tests passing
 - **Future Phases**:
-  - Phase 5: Verification & End-to-End Optimization Integration
+  - Phase 5B+: Prim's MST grid design, Hungarian matching, and Ford-Fulkerson max-flow integrations
 
 ---
 
@@ -69,6 +74,7 @@ The user-facing website allows EV drivers to locate the nearest feasible chargin
 | `GET` | `/api/health` | Service operational health and version status (`{"status": "ok", "version": "0.3.0"}`) |
 | `GET` | `/api/gis/network` | Road network metadata (`node_count`, `edge_count`, `data_source`) |
 | `POST` | `/api/route/live` | Live GPS route calculation to the nearest feasible EV charging station |
+| `POST` | `/api/optimize/dominating-set` | Greedy MDS calculation for network-wide optimal EV charging station placement |
 | `GET` | `/docs` | Interactive Swagger UI API documentation |
 | `GET` | `/openapi.json` | OpenAPI 3.1 JSON specification |
 

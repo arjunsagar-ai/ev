@@ -84,3 +84,55 @@ class LiveRouteResponse(BaseModel):
     route: RouteInfo = Field(..., description="Optimal Dijkstra route from snapped node to station")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# ── Phase 5A: Minimum Dominating Set (MDS) schemas ──────────────────
+
+class DominatingSetStation(BaseModel):
+    """Charging station selected by the greedy MDS algorithm."""
+    candidate_id: str = Field(..., description="Candidate station unique identifier")
+    node_id: Any = Field(..., description="Associated road network node ID")
+    latitude: float = Field(..., description="Station latitude")
+    longitude: float = Field(..., description="Station longitude")
+    feasible: bool = Field(default=True, description="Feasibility status of candidate")
+    feasibility_score: Optional[float] = Field(None, description="Estimated feasibility score (0.0 to 1.0)")
+    covered_demand_count: Optional[int] = Field(None, description="Number of demand nodes covered by this station")
+
+
+class DominatingSetRequest(BaseModel):
+    """Request payload for greedy MDS station placement."""
+    coverage_radius_km: Optional[float] = Field(
+        default=None,
+        description="Graph distance coverage radius in km around each station",
+        gt=0,
+    )
+    min_feasibility_score: Optional[float] = Field(
+        default=None,
+        description="Optional minimum candidate feasibility score threshold (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+    max_stations: Optional[int] = Field(
+        default=None,
+        description="Optional maximum number of stations to select",
+        gt=0,
+    )
+
+
+class DominatingSetResponse(BaseModel):
+    """Response payload for greedy MDS station placement."""
+    selected_stations: List[DominatingSetStation] = Field(
+        ...,
+        description="List of charging stations chosen by greedy MDS coverage approximation",
+    )
+    selected_count: int = Field(..., description="Total number of selected charging stations")
+    candidate_count: int = Field(..., description="Total number of eligible feasible candidates evaluated")
+    total_demand_nodes: int = Field(..., description="Total demand nodes in the road network")
+    covered_demand_nodes: int = Field(..., description="Total demand nodes covered by the selected stations")
+    coverage_percentage: float = Field(..., description="Percentage of network demand nodes covered (0.0 to 100.0)")
+    coverage_radius_km: float = Field(..., description="Coverage radius applied during optimization in km")
+    algorithm: str = Field(
+        default="greedy_mds_approximation",
+        description="Algorithm designation (greedy set-cover approximation)",
+    )
+

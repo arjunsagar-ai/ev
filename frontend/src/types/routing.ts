@@ -54,3 +54,33 @@ export interface UserCoordinates {
   longitude: number;
   accuracy?: number;
 }
+
+// ── Phase 5A: Minimum Dominating Set (MDS) types ──────────────────
+
+export interface DominatingSetStation {
+  candidate_id: string;
+  node_id: string | number;
+  latitude: number;
+  longitude: number;
+  feasible: boolean;
+  feasibility_score?: number | null;
+  covered_demand_count?: number | null;
+}
+
+export interface DominatingSetRequest {
+  coverage_radius_km?: number;
+  min_feasibility_score?: number;
+  max_stations?: number;
+}
+
+export interface DominatingSetResponse {
+  selected_stations: DominatingSetStation[];
+  selected_count: number;
+  candidate_count: number;
+  total_demand_nodes: number;
+  covered_demand_nodes: number;
+  coverage_percentage: number;
+  coverage_radius_km: number;
+  algorithm: string;
+}
+

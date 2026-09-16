@@ -7,8 +7,8 @@ import {
 import { MapView } from './components/MapView';
 import { RoutePanel } from './components/RoutePanel';
 import { useGeolocation } from './hooks/useGeolocation';
-import { fetchLiveRoute, fetchHealth } from './api/routingApi';
-import { LiveRouteResponse, UserCoordinates } from './types/routing';
+import { fetchLiveRoute, fetchHealth, fetchDominatingSetOptimization } from './api/routingApi';
+import { LiveRouteResponse, UserCoordinates, DominatingSetResponse } from './types/routing';
 
 export const App: React.FC = () => {
   const {
@@ -26,6 +26,11 @@ export const App: React.FC = () => {
   const [routeResponse, setRouteResponse] = useState<LiveRouteResponse | null>(null);
   const [routeLoading, setRouteLoading] = useState<boolean>(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+
+  // Phase 5A: Minimum Dominating Set (MDS) Station Optimization state
+  const [mdsResponse, setMdsResponse] = useState<DominatingSetResponse | null>(null);
+  const [mdsLoading, setMdsLoading] = useState<boolean>(false);
+  const [mdsError, setMdsError] = useState<string | null>(null);
 
   // Health / Backend status
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
@@ -141,6 +146,33 @@ export const App: React.FC = () => {
     }
   };
 
+  /**
+   * Phase 5A: Calculate network-wide Minimum Dominating Set (MDS)
+   * for optimal charging station placement.
+   */
+  const handleOptimizeMds = async () => {
+    setMdsError(null);
+    setMdsLoading(true);
+    try {
+      const result = await fetchDominatingSetOptimization();
+      setMdsResponse(result);
+    } catch (err: unknown) {
+      setMdsResponse(null);
+      if (err instanceof Error) {
+        setMdsError(err.message);
+      } else {
+        setMdsError('An error occurred calculating dominating set station placement.');
+      }
+    } finally {
+      setMdsLoading(false);
+    }
+  };
+
+  const handleClearMds = () => {
+    setMdsResponse(null);
+    setMdsError(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* ── Global Header ────────────────────────────────────────── */}
@@ -200,6 +232,7 @@ export const App: React.FC = () => {
             <MapView
               userCoordinates={activeCoords}
               routeResponse={routeResponse}
+              mdsStations={mdsResponse?.selected_stations}
             />
           </div>
 
@@ -212,6 +245,11 @@ export const App: React.FC = () => {
               error={currentError}
               onLocate={handleUseMyLocation}
               onClearError={handleClearError}
+              mdsResponse={mdsResponse}
+              mdsLoading={mdsLoading}
+              mdsError={mdsError}
+              onOptimizeMds={handleOptimizeMds}
+              onClearMds={handleClearMds}
             />
 
             {/* Quick Testing Card for Offline / Desktop environments */}

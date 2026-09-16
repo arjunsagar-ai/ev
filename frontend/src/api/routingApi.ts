@@ -1,4 +1,6 @@
 import {
+  DominatingSetRequest,
+  DominatingSetResponse,
   HealthResponse,
   LiveRouteRequest,
   LiveRouteResponse,
@@ -51,6 +53,43 @@ export async function fetchLiveRoute(
   return response.json();
 }
 
+export async function fetchDominatingSetOptimization(
+  request: DominatingSetRequest = {}
+): Promise<DominatingSetResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/optimize/dominating-set`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new Error('Unable to connect to the optimization server. Please check your network connection.');
+  }
+
+  if (!response.ok) {
+    let errorDetail = 'Station optimization service encountered an error.';
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch {
+      errorDetail = `Server responded with status ${response.status}: ${response.statusText}`;
+    }
+
+    if (response.status >= 500) {
+      throw new Error('Station optimization service is currently unavailable.');
+    }
+
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}
+
 export async function fetchNetworkInfo(): Promise<NetworkInfoResponse> {
   const response = await fetch(`${API_BASE_URL}/api/gis/network`);
   if (!response.ok) {
@@ -66,3 +105,4 @@ export async function fetchHealth(): Promise<HealthResponse> {
   }
   return response.json();
 }
+

@@ -9,12 +9,17 @@ import {
 } from 'react-leaflet';
 import L, { LatLngBoundsExpression } from 'leaflet';
 import { StationMarker } from './StationMarker';
-import { LiveRouteResponse, UserCoordinates } from '../types/routing';
+import {
+  DominatingSetStation,
+  LiveRouteResponse,
+  UserCoordinates,
+} from '../types/routing';
 import { formatCoordinates } from '../utils/coordinates';
 
 interface MapViewProps {
   userCoordinates: UserCoordinates | null;
   routeResponse: LiveRouteResponse | null;
+  mdsStations?: DominatingSetStation[] | null;
 }
 
 // Neutral default center (near sample network area)
@@ -62,10 +67,12 @@ const userMarkerIcon = L.divIcon({
 const MapAutoBounds: React.FC<{
   userCoordinates: UserCoordinates | null;
   routeCoordinates?: [number, number][];
-}> = ({ userCoordinates, routeCoordinates }) => {
+  mdsStations?: DominatingSetStation[] | null;
+}> = ({ userCoordinates, routeCoordinates, mdsStations }) => {
   const map = useMap();
   const prevRouteRef = useRef<string | null>(null);
   const prevUserRef = useRef<string | null>(null);
+  const prevMdsRef = useRef<string | null>(null);
 
   useEffect(() => {
     // 1. If route coordinates exist and changed, fit the view to encompass the entire route
@@ -79,7 +86,18 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 2. Otherwise, if user location just became available, pan to user
+    // 2. If MDS stations exist and changed (and no active route), fit view to stations
+    if (mdsStations && mdsStations.length > 0 && (!routeCoordinates || routeCoordinates.length === 0)) {
+      const mdsKey = mdsStations.map((s) => s.candidate_id).join(',');
+      if (mdsKey !== prevMdsRef.current) {
+        prevMdsRef.current = mdsKey;
+        const bounds: LatLngBoundsExpression = mdsStations.map((s) => [s.latitude, s.longitude]);
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+        return;
+      }
+    }
+
+    // 3. Otherwise, if user location just became available, pan to user
     if (userCoordinates) {
       const userKey = `${userCoordinates.latitude},${userCoordinates.longitude}`;
       if (userKey !== prevUserRef.current) {
@@ -87,7 +105,7 @@ const MapAutoBounds: React.FC<{
         map.setView([userCoordinates.latitude, userCoordinates.longitude], 15);
       }
     }
-  }, [map, userCoordinates, routeCoordinates]);
+  }, [map, userCoordinates, routeCoordinates, mdsStations]);
 
   return null;
 };
@@ -95,6 +113,7 @@ const MapAutoBounds: React.FC<{
 export const MapView: React.FC<MapViewProps> = ({
   userCoordinates,
   routeResponse,
+  mdsStations,
 }) => {
   const routePolyline = routeResponse?.route?.coordinates;
 
@@ -151,12 +170,24 @@ export const MapView: React.FC<MapViewProps> = ({
           </Marker>
         )}
 
+        {/* MDS Optimized Station Markers */}
+        {mdsStations &&
+          mdsStations.map((station) => (
+            <StationMarker
+              key={`mds-${station.candidate_id}`}
+              station={station}
+              variant="mds_selected"
+              coveredDemandCount={station.covered_demand_count}
+            />
+          ))}
+
         {/* Destination Station Marker */}
         {routeResponse?.station && (
           <StationMarker
             station={routeResponse.station}
             distanceKm={routeResponse.route?.distance_km}
             etaMinutes={routeResponse.route?.estimated_eta_minutes}
+            variant="route_destination"
           />
         )}
 
