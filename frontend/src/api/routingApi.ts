@@ -5,8 +5,10 @@ import {
   DominatingSetResponse,
   HealthResponse,
   LiveRouteRequest,
-  LiveRouteResponse,
-  NetworkInfoResponse,
+    LiveRouteResponse,
+    NetworkInfoResponse,
+    InfrastructureRequest,
+    InfrastructureResponse,
 } from '../types/routing';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -121,6 +123,43 @@ export async function fetchHungarianAssignment(
 
     if (response.status >= 500) {
       throw new Error('Assignment optimization service is currently unavailable.');
+    }
+
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}
+
+export async function fetchInfrastructureOptimization(
+  request: InfrastructureRequest = {}
+): Promise<InfrastructureResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/optimize/infrastructure`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new Error('Unable to connect to the infrastructure optimization server. Please check your network connection.');
+  }
+
+  if (!response.ok) {
+    let errorDetail = 'Infrastructure optimization service encountered an error.';
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch {
+      errorDetail = `Server responded with status ${response.status}: ${response.statusText}`;
+    }
+
+    if (response.status >= 500) {
+      throw new Error('Infrastructure optimization service is currently unavailable.');
     }
 
     throw new Error(errorDetail);

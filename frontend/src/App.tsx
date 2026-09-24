@@ -12,12 +12,14 @@ import {
   fetchHealth,
   fetchDominatingSetOptimization,
   fetchHungarianAssignment,
+  fetchInfrastructureOptimization,
 } from './api/routingApi';
 import {
   LiveRouteResponse,
   UserCoordinates,
   DominatingSetResponse,
   AssignmentResponse,
+  InfrastructureResponse,
 } from './types/routing';
 
 export const App: React.FC = () => {
@@ -46,6 +48,11 @@ export const App: React.FC = () => {
   const [hungarianResponse, setHungarianResponse] = useState<AssignmentResponse | null>(null);
   const [hungarianLoading, setHungarianLoading] = useState<boolean>(false);
   const [hungarianError, setHungarianError] = useState<string | null>(null);
+
+  // Phase 5C: Prim's Minimum Spanning Tree (MST) Infrastructure state
+  const [infraResponse, setInfraResponse] = useState<InfrastructureResponse | null>(null);
+  const [infraLoading, setInfraLoading] = useState<boolean>(false);
+  const [infraError, setInfraError] = useState<string | null>(null);
 
   // Health / Backend status
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
@@ -186,6 +193,8 @@ export const App: React.FC = () => {
   const handleClearMds = () => {
     setMdsResponse(null);
     setMdsError(null);
+    setInfraResponse(null);
+    setInfraError(null);
   };
 
   /**
@@ -233,6 +242,44 @@ export const App: React.FC = () => {
   const handleClearHungarian = () => {
     setHungarianResponse(null);
     setHungarianError(null);
+  };
+
+  /**
+   * Phase 5C: Minimum Spanning Tree (MST) Infrastructure Optimization using Prim's algorithm.
+   */
+  const handleOptimizeInfrastructure = async () => {
+    setInfraError(null);
+
+    // Ensure MDS stations have been selected first
+    if (!mdsResponse?.selected_stations || mdsResponse.selected_stations.length === 0) {
+      setInfraError('Run station optimization first.');
+      return;
+    }
+
+    setInfraLoading(true);
+    const stationIds = mdsResponse.selected_stations.map((s) => s.candidate_id);
+
+    try {
+      const result = await fetchInfrastructureOptimization({
+        station_ids: stationIds,
+        cost_metric: 'network_distance_km',
+      });
+      setInfraResponse(result);
+    } catch (err: unknown) {
+      setInfraResponse(null);
+      if (err instanceof Error) {
+        setInfraError(err.message);
+      } else {
+        setInfraError('An error occurred calculating infrastructure optimization.');
+      }
+    } finally {
+      setInfraLoading(false);
+    }
+  };
+
+  const handleClearInfrastructure = () => {
+    setInfraResponse(null);
+    setInfraError(null);
   };
 
   return (
@@ -296,6 +343,7 @@ export const App: React.FC = () => {
               routeResponse={routeResponse}
               mdsStations={mdsResponse?.selected_stations}
               hungarianResponse={hungarianResponse}
+              infraResponse={infraResponse}
             />
           </div>
 
@@ -318,6 +366,11 @@ export const App: React.FC = () => {
               hungarianError={hungarianError}
               onAssignHungarian={handleAssignHungarian}
               onClearHungarian={handleClearHungarian}
+              infraResponse={infraResponse}
+              infraLoading={infraLoading}
+              infraError={infraError}
+              onOptimizeInfrastructure={handleOptimizeInfrastructure}
+              onClearInfrastructure={handleClearInfrastructure}
             />
 
             {/* Quick Testing Card for Offline / Desktop environments */}

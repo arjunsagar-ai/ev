@@ -10,10 +10,12 @@ import {
   Loader2,
   X,
   ArrowRightLeft,
+  Network,
 } from 'lucide-react';
 import {
   AssignmentResponse,
   DominatingSetResponse,
+  InfrastructureResponse,
   LiveRouteResponse,
 } from '../types/routing';
 import { formatDistance, formatEta } from '../utils/coordinates';
@@ -42,6 +44,13 @@ interface RoutePanelProps {
   hungarianError: string | null;
   onAssignHungarian: () => void;
   onClearHungarian?: () => void;
+
+  // Phase 5C: Prim MST Infrastructure props
+  infraResponse: InfrastructureResponse | null;
+  infraLoading: boolean;
+  infraError: string | null;
+  onOptimizeInfrastructure: () => void;
+  onClearInfrastructure?: () => void;
 }
 
 export const RoutePanel: React.FC<RoutePanelProps> = ({
@@ -61,6 +70,11 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
   hungarianError,
   onAssignHungarian,
   onClearHungarian,
+  infraResponse,
+  infraLoading,
+  infraError,
+  onOptimizeInfrastructure,
+  onClearInfrastructure,
 }) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200/80 shadow-lg p-5 flex flex-col space-y-4">
@@ -118,7 +132,38 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
             </>
           )}
         </button>
+
+        {/* Phase 5C: Prim MST Infrastructure Optimization Action Button */}
+        <button
+          type="button"
+          onClick={onOptimizeInfrastructure}
+          disabled={infraLoading || isLoading}
+          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-teal-200 
+            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none 
+            focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 bg-teal-50 hover:bg-teal-100 
+            text-teal-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
+        >
+          {infraLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin mr-2 text-teal-600" />
+              <span>Optimizing infrastructure MST...</span>
+            </>
+          ) : (
+            <>
+              <Network className="w-4 h-4 mr-2 text-teal-600" />
+              <span>Optimize Infrastructure</span>
+            </>
+          )}
+        </button>
       </div>
+
+      {/* Infrastructure Error Message Display */}
+      {infraError && !infraLoading && (
+        <ErrorMessage
+          message={infraError}
+          onRetry={onOptimizeInfrastructure}
+        />
+      )}
 
       {/* Hungarian Error Message Display */}
       {hungarianError && !hungarianLoading && (
@@ -134,6 +179,107 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           message={mdsError}
           onRetry={onOptimizeMds}
         />
+      )}
+
+      {/* Phase 5C: Prim MST Infrastructure Summary Card */}
+      {infraResponse && !infraLoading && !infraError && (
+        <div className="bg-gradient-to-br from-teal-50 to-emerald-50/40 border border-teal-200/80 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-600 text-white shadow-xs">
+                <Network className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Infrastructure Optimization
+                </h3>
+                <p className="text-sm font-bold text-gray-900">
+                  Prim Minimum Spanning Tree
+                </p>
+              </div>
+            </div>
+            {onClearInfrastructure && (
+              <button
+                type="button"
+                onClick={onClearInfrastructure}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                title="Hide Infrastructure MST"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+            <div className="bg-white/80 rounded-lg p-2 border border-teal-100">
+              <span className="text-gray-500 block">Stations</span>
+              <span className="text-sm font-bold text-gray-900">
+                {infraResponse.connected_station_count} / {infraResponse.station_count}
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-teal-100">
+              <span className="text-gray-500 block">MST Connections</span>
+              <span className="text-sm font-bold text-teal-800">
+                {infraResponse.mst_edge_count}
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-teal-100 col-span-2">
+              <span className="text-gray-500 block">Total Infrastructure Distance</span>
+              <span className="text-base font-extrabold text-teal-900">
+                {infraResponse.total_cost_km} km
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-teal-100 col-span-2">
+              <span className="text-gray-500 block">Cost Metric</span>
+              <span className="text-sm font-semibold text-gray-800 capitalize">
+                {infraResponse.cost_metric === 'network_distance_km'
+                  ? 'Network Distance'
+                  : 'Geographic Distance'}
+              </span>
+            </div>
+          </div>
+
+          {/* Disconnected Network Warning if applicable */}
+          {infraResponse.unconnected_station_ids && infraResponse.unconnected_station_ids.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-lg text-xs space-y-1">
+              <div className="font-bold flex items-center space-x-1">
+                <span>⚠️ Disconnected Station Network</span>
+              </div>
+              <p className="text-[11px] leading-tight">
+                {infraResponse.unconnected_station_ids.length} station(s) cannot be reached using the available road network:
+              </p>
+              <div className="font-mono text-[11px] text-amber-900">
+                {infraResponse.unconnected_station_ids.join(', ')}
+              </div>
+            </div>
+          )}
+
+          {/* List of MST Infrastructure Connections */}
+          <div className="space-y-1.5 pt-1">
+            <span className="text-[11px] font-semibold text-gray-500 uppercase">
+              Spanning Connections
+            </span>
+            <div className="space-y-1 max-h-32 overflow-y-auto pr-1 text-xs">
+              {infraResponse.edges.map((edge, idx) => (
+                <div
+                  key={`mst-list-${edge.from_station_id}-${edge.to_station_id}-${idx}`}
+                  className="flex items-center justify-between bg-white/70 px-2.5 py-1.5 rounded-md border border-teal-100"
+                >
+                  <span className="font-medium text-gray-800">
+                    <span className="text-purple-700 font-bold">{edge.from_station_id}</span> &harr; <span className="text-purple-700 font-bold">{edge.to_station_id}</span>
+                  </span>
+                  <span className="text-gray-500 font-mono text-[11px]">
+                    {edge.cost_km} km
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-gray-500 leading-tight border-t border-teal-100 pt-2">
+            Minimum spanning infrastructure connection distance calculated via Prim's algorithm on shortest road paths.
+          </p>
+        </div>
       )}
 
       {/* Hungarian EV Assignment Summary Card */}

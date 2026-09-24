@@ -212,3 +212,74 @@ class AssignmentResponse(BaseModel):
     unassigned_station_ids: List[str] = Field(default_factory=list, description="List of station IDs not assigned to any EV")
     total_cost_km: float = Field(..., description="Total assignment cost across all matched pairs in km")
 
+
+# ── Phase 5C: Prim's Minimum Spanning Tree (MST) schemas ───────────
+
+class InfrastructureStation(BaseModel):
+    """Charging station node within the infrastructure connection network."""
+    station_id: str = Field(..., description="Unique station candidate identifier")
+    candidate_id: str = Field(..., description="Candidate identifier (alias for station_id)")
+    latitude: float = Field(..., description="Station latitude")
+    longitude: float = Field(..., description="Station longitude")
+    nearest_road_node: Optional[Any] = Field(None, description="Road network node ID associated with station")
+    connected: bool = Field(default=True, description="Whether station is connected in the MST component")
+
+
+class InfrastructureEdge(BaseModel):
+    """Minimum spanning tree connection edge between two charging stations."""
+    from_station_id: str = Field(..., description="Source station candidate ID")
+    to_station_id: str = Field(..., description="Destination station candidate ID")
+    cost_km: float = Field(..., description="Infrastructure connection distance/cost in kilometers")
+    path_coordinates: List[List[float]] = Field(
+        default_factory=list,
+        description="Polyline coordinates [[lat, lon], ...] along the road network connecting the stations",
+    )
+
+
+class InfrastructureRequest(BaseModel):
+    """Request payload for Prim MST infrastructure connection optimization."""
+    station_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of candidate station IDs to connect. If omitted, MDS-selected stations will be used.",
+    )
+    coverage_radius_km: Optional[float] = Field(
+        default=None,
+        description="Coverage radius in km for dynamic MDS station selection if station_ids omitted",
+        gt=0,
+    )
+    min_feasibility_score: Optional[float] = Field(
+        default=None,
+        description="Minimum feasibility score threshold for dynamic candidate filtering",
+        ge=0.0,
+        le=1.0,
+    )
+    max_stations: Optional[int] = Field(
+        default=None,
+        description="Optional maximum stations limit",
+        gt=0,
+    )
+    cost_metric: Optional[str] = Field(
+        default="network_distance_km",
+        description="Preferred cost metric: 'network_distance_km' (default) or 'geographic_distance_km'",
+    )
+
+
+class InfrastructureResponse(BaseModel):
+    """Response payload for Prim MST infrastructure network optimization."""
+    algorithm: str = Field(
+        default="prim_mst",
+        description="Algorithm designation (Prim Minimum Spanning Tree)",
+    )
+    cost_metric: str = Field(
+        ...,
+        description="Distance metric used: 'network_distance_km' or 'geographic_distance_km'",
+    )
+    station_count: int = Field(..., description="Total number of candidate stations evaluated")
+    connected_station_count: int = Field(..., description="Number of stations connected in the MST component")
+    mst_edge_count: int = Field(..., description="Total number of connection edges in the MST")
+    total_cost_km: float = Field(..., description="Total infrastructure connection distance across all MST edges in km")
+    stations: List[InfrastructureStation] = Field(..., description="List of evaluated stations with connection status")
+    edges: List[InfrastructureEdge] = Field(..., description="List of MST infrastructure connection edges")
+    connected_station_ids: List[str] = Field(default_factory=list, description="IDs of stations connected in the MST")
+    unconnected_station_ids: List[str] = Field(default_factory=list, description="IDs of stations unreachable in network")
+

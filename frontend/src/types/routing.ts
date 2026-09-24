@@ -125,4 +125,43 @@ export interface AssignmentResponse {
   total_cost_km: number;
 }
 
+// ── Phase 5C: Prim MST Infrastructure Optimization types ──────────
+
+export interface InfrastructureStation {
+  station_id: string;
+  candidate_id: string;
+  latitude: number;
+  longitude: number;
+  nearest_road_node?: string | number | null;
+  connected: boolean;
+}
+
+export interface InfrastructureEdge {
+  from_station_id: string;
+  to_station_id: string;
+  cost_km: number;
+  path_coordinates: [number, number][];
+}
+
+export interface InfrastructureRequest {
+  station_ids?: string[];
+  coverage_radius_km?: number;
+  min_feasibility_score?: number;
+  max_stations?: number;
+  cost_metric?: string;
+}
+
+export interface InfrastructureResponse {
+  algorithm: string;
+  cost_metric: string;
+  station_count: number;
+  connected_station_count: number;
+  mst_edge_count: number;
+  total_cost_km: number;
+  stations: InfrastructureStation[];
+  edges: InfrastructureEdge[];
+  connected_station_ids: string[];
+  unconnected_station_ids: string[];
+}
+
 

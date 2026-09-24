@@ -43,8 +43,14 @@ An optimization platform integrating graph algorithms, GIS geospatial analysis, 
   - REST endpoint `POST /api/optimize/assignment` supporting rectangular matrices, unassigned EV tracking, and unassigned station reporting
   - Frontend "Assign EVs to Stations" controls, orange dashed matching polylines, and detailed matching summary metrics
   - 164 automated unit, integration, and API tests passing
+- **Phase 5C (Prim MST Infrastructure Optimization)**: **COMPLETE**
+  - Prim's Minimum Spanning Tree (MST) service estimating the minimum spanning infrastructure connection network between selected charging stations
+  - Direct pairwise shortest path routing across the road network graph via Dijkstra with geodesic Haversine fallback
+  - REST endpoint `POST /api/optimize/infrastructure` resolving selected MDS stations, tracking connected/unconnected station components without fabricating artificial edges
+  - Frontend "Optimize Infrastructure" controls, teal dashed infrastructure connection polylines with interactive popups, and comprehensive distance metrics
+  - 185 automated unit, integration, and API tests passing
 - **Future Phases**:
-  - Phase 5C+: Prim's MST electrical grid interconnection and Ford-Fulkerson maximum power flow min-cut analysis
+  - Phase 6: Ford-Fulkerson (Edmonds-Karp) maximum grid flow capacity and critical transmission bottleneck min-cut analysis
 
 ---
 
@@ -82,6 +88,7 @@ The user-facing website allows EV drivers to locate the nearest feasible chargin
 | `POST` | `/api/route/live` | Live GPS route calculation to the nearest feasible EV charging station |
 | `POST` | `/api/optimize/dominating-set` | Greedy MDS calculation for network-wide optimal EV charging station placement |
 | `POST` | `/api/optimize/assignment` | Kuhn-Munkres (Hungarian) minimum-cost bipartite EV-to-station assignment |
+| `POST` | `/api/optimize/infrastructure` | Prim's Minimum Spanning Tree (MST) for EV station infrastructure connection network |
 | `GET` | `/docs` | Interactive Swagger UI API documentation |
 | `GET` | `/openapi.json` | OpenAPI 3.1 JSON specification |
 
@@ -129,6 +136,62 @@ EV → Station Assignments
 
 ---
 
+## EV Charging Infrastructure Expansion via Prim's MST (Phase 5C)
+
+The infrastructure expansion layer computes the minimum spanning infrastructure connection network between selected EV charging stations.
+
+### Architecture & Algorithm Coordination
+
+```
+                    EV Locations
+                         │
+                         ▼
+                       MDS
+                         │
+                 Selected Stations
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼
+        Hungarian                   Prim
+             │                       │
+      EV → Station             Station Network
+       Assignment              Infrastructure
+                                  Distance
+```
+
+### Purpose of Prim MST
+While **MDS** determines which candidate sites to activate for optimal urban coverage and **Hungarian** matches vehicles to active charging slots, **Prim's Algorithm** calculates the minimum-distance spanning backbone required to interconnect the selected stations (e.g., for power line conduit routing, telemetry, and communications along existing road corridors).
+
+> **Important Distinction**: Prim MST does **not** select charging stations. It operates strictly on the charging stations already selected by MDS (or supplied via station IDs).
+
+### Infrastructure Cost Metric
+- **Primary Metric (`network_distance_km`)**: The edge weight between any two stations corresponds to the shortest path distance in kilometers along the physical road network graph, computed using Dijkstra's algorithm.
+- **Fallback Metric (`geographic_distance_km`)**: If the road network is unavailable or disconnected, geodesic Haversine distance in kilometers is applied uniformly across the station graph.
+- **Metric Integrity**: Prim minimizes **total network connection distance**, not financial construction costs. Unless an empirically validated monetary cost model is provided, values are reported strictly as connection distance in kilometers.
+
+### API Endpoint (`POST /api/optimize/infrastructure`)
+- **Request**: Accepts an array of selected `station_ids` (or resolves them dynamically via MDS if omitted).
+- **Response**: Returns:
+  - `algorithm`: `"prim_mst"`
+  - `cost_metric`: `"network_distance_km"`
+  - `station_count` and `connected_station_count`
+  - `mst_edge_count` and `total_cost_km`
+  - `stations`: Evaluated station candidate metadata and connectivity status
+  - `edges`: Array of MST connection edges with `from_station_id`, `to_station_id`, `cost_km`, and full road `path_coordinates`
+  - `connected_station_ids` and `unconnected_station_ids`
+
+### Disconnected Graph Handling
+- The backend does **not** fabricate artificial zero-cost or infinite-cost edges between disconnected components.
+- If two stations cannot be reached along the available road network, Prim's algorithm spans only the reachable component and honestly reports unreachable stations in `unconnected_station_ids`.
+- For single-station inputs ($N=1$), total infrastructure distance is $0.0\text{ km}$ with $0$ edges.
+- For empty station inputs ($N=0$), an empty result structure is returned cleanly.
+
+### Limitations
+- Models physical connection distance along road corridors; does not incorporate terrain slope, right-of-way easement fees, or underground electrical cable installation costs.
+- Does not enforce power substation capacity limits (which will be addressed by Ford-Fulkerson in Phase 6).
+
+---
+
 ## Implemented Core Algorithms
 
 1. **Weighted Road Network Graph (`WeightedGraph`)**:
@@ -161,7 +224,7 @@ cd backend
 source ../.venv/bin/activate
 pip install -r requirements.txt
 
-# Run ground-truth tests (164 tests)
+# Run ground-truth tests (185 tests)
 pytest -q
 
 # Start backend server

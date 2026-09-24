@@ -12,6 +12,7 @@ import { StationMarker } from './StationMarker';
 import {
   AssignmentResponse,
   DominatingSetStation,
+  InfrastructureResponse,
   LiveRouteResponse,
   UserCoordinates,
 } from '../types/routing';
@@ -22,6 +23,7 @@ interface MapViewProps {
   routeResponse: LiveRouteResponse | null;
   mdsStations?: DominatingSetStation[] | null;
   hungarianResponse?: AssignmentResponse | null;
+  infraResponse?: InfrastructureResponse | null;
 }
 
 // Neutral default center (near sample network area)
@@ -100,12 +102,14 @@ const MapAutoBounds: React.FC<{
   routeCoordinates?: [number, number][];
   mdsStations?: DominatingSetStation[] | null;
   hungarianResponse?: AssignmentResponse | null;
-}> = ({ userCoordinates, routeCoordinates, mdsStations, hungarianResponse }) => {
+  infraResponse?: InfrastructureResponse | null;
+}> = ({ userCoordinates, routeCoordinates, mdsStations, hungarianResponse, infraResponse }) => {
   const map = useMap();
   const prevRouteRef = useRef<string | null>(null);
   const prevUserRef = useRef<string | null>(null);
   const prevMdsRef = useRef<string | null>(null);
   const prevHungarianRef = useRef<string | null>(null);
+  const prevInfraRef = useRef<string | null>(null);
 
   useEffect(() => {
     // 1. If route coordinates exist and changed, fit the view to encompass the entire route
@@ -119,7 +123,29 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 2. If Hungarian assignments exist and changed (and no active route), fit view to assignments
+    // 2. If infrastructure MST edges exist and changed (and no active route), fit view to infrastructure edges
+    if (
+      infraResponse?.edges &&
+      infraResponse.edges.length > 0 &&
+      (!routeCoordinates || routeCoordinates.length === 0)
+    ) {
+      const infraKey = infraResponse.edges.map((e) => `${e.from_station_id}->${e.to_station_id}`).join(',');
+      if (infraKey !== prevInfraRef.current) {
+        prevInfraRef.current = infraKey;
+        const allPoints: [number, number][] = [];
+        infraResponse.edges.forEach((e) => {
+          e.path_coordinates.forEach((pt) => {
+            allPoints.push([pt[0], pt[1]]);
+          });
+        });
+        if (allPoints.length > 0) {
+          map.fitBounds(allPoints, { padding: [60, 60], maxZoom: 15 });
+          return;
+        }
+      }
+    }
+
+    // 3. If Hungarian assignments exist and changed (and no active route), fit view to assignments
     if (
       hungarianResponse?.assignments &&
       hungarianResponse.assignments.length > 0 &&
@@ -140,7 +166,7 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 3. If MDS stations exist and changed (and no active route), fit view to stations
+    // 4. If MDS stations exist and changed (and no active route), fit view to stations
     if (mdsStations && mdsStations.length > 0 && (!routeCoordinates || routeCoordinates.length === 0)) {
       const mdsKey = mdsStations.map((s) => s.candidate_id).join(',');
       if (mdsKey !== prevMdsRef.current) {
@@ -151,7 +177,7 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 4. Otherwise, if user location just became available, pan to user
+    // 5. Otherwise, if user location just became available, pan to user
     if (userCoordinates) {
       const userKey = `${userCoordinates.latitude},${userCoordinates.longitude}`;
       if (userKey !== prevUserRef.current) {
@@ -159,7 +185,7 @@ const MapAutoBounds: React.FC<{
         map.setView([userCoordinates.latitude, userCoordinates.longitude], 15);
       }
     }
-  }, [map, userCoordinates, routeCoordinates, mdsStations, hungarianResponse]);
+  }, [map, userCoordinates, routeCoordinates, mdsStations, hungarianResponse, infraResponse]);
 
   return null;
 };
@@ -169,6 +195,7 @@ export const MapView: React.FC<MapViewProps> = ({
   routeResponse,
   mdsStations,
   hungarianResponse,
+  infraResponse,
 }) => {
   const routePolyline = routeResponse?.route?.coordinates;
 
@@ -197,6 +224,7 @@ export const MapView: React.FC<MapViewProps> = ({
           routeCoordinates={routePolyline}
           mdsStations={mdsStations}
           hungarianResponse={hungarianResponse}
+          infraResponse={infraResponse}
         />
 
         {/* User GPS Location Marker */}
@@ -336,6 +364,58 @@ export const MapView: React.FC<MapViewProps> = ({
                       </p>
                       <p className="text-gray-500 mt-0.5">
                         Distance: <strong>{asgn.cost_km} km</strong>
+                      </p>
+                    </div>
+                  </Popup>
+                </Polyline>
+              </React.Fragment>
+            );
+          })}
+
+        {/* Phase 5C: Prim MST Infrastructure Connection Edges */}
+        {infraResponse?.edges &&
+          infraResponse.edges.map((edge, idx) => {
+            const pathPositions: [number, number][] =
+              edge.path_coordinates && edge.path_coordinates.length > 0
+                ? (edge.path_coordinates as [number, number][])
+                : [];
+
+            if (pathPositions.length === 0) return null;
+
+            return (
+              <React.Fragment key={`mst-edge-${edge.from_station_id}-${edge.to_station_id}-${idx}`}>
+                {/* Background Shadow/Glow for Infrastructure Polyline */}
+                <Polyline
+                  positions={pathPositions}
+                  pathOptions={{
+                    color: '#0f766e',
+                    weight: 6,
+                    opacity: 0.25,
+                    lineCap: 'round',
+                  }}
+                />
+                {/* Teal Dashed Infrastructure Edge */}
+                <Polyline
+                  positions={pathPositions}
+                  pathOptions={{
+                    color: '#0d9488',
+                    weight: 4,
+                    dashArray: '10, 6',
+                    opacity: 0.95,
+                    lineCap: 'round',
+                  }}
+                >
+                  <Popup>
+                    <div className="p-1 text-xs">
+                      <div className="flex items-center space-x-1.5 font-bold text-teal-800 pb-1 border-b border-teal-100">
+                        <span className="h-2 w-2 rounded-full bg-teal-600"></span>
+                        <span>MST Infrastructure Connection</span>
+                      </div>
+                      <p className="text-gray-700 mt-1">
+                        <strong>{edge.from_station_id}</strong> &harr; <strong>{edge.to_station_id}</strong>
+                      </p>
+                      <p className="text-gray-500 mt-0.5">
+                        Connection Distance: <strong>{edge.cost_km} km</strong>
                       </p>
                     </div>
                   </Popup>

@@ -12,6 +12,8 @@ from app.api.schemas import (
     LiveRouteRequest,
     LiveRouteResponse,
     NetworkInfoResponse,
+    InfrastructureRequest,
+    InfrastructureResponse,
 )
 from app.services.routing_service import RoutingService, get_routing_service
 from app.services.station_optimization_service import (
@@ -21,6 +23,10 @@ from app.services.station_optimization_service import (
 from app.services.assignment_service import (
     AssignmentService,
     get_assignment_service,
+)
+from app.services.infrastructure_service import (
+    InfrastructureService,
+    get_infrastructure_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -201,6 +207,48 @@ def post_hungarian_assignment(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while calculating EV-to-station assignments.",
+        )
+
+
+@router.post(
+    "/optimize/infrastructure",
+    response_model=InfrastructureResponse,
+    summary="Compute minimum spanning infrastructure connection network using Prim's MST",
+    description=(
+        "Executes Prim's algorithm on selected EV charging stations to determine "
+        "the minimum spanning infrastructure connection network based on road network "
+        "shortest-path distance or geographic distance."
+    ),
+    responses={
+        400: {"description": "Invalid station IDs or optimization parameters."},
+        500: {"description": "Internal error during infrastructure optimization."},
+    },
+)
+def post_infrastructure_optimization(
+    request: InfrastructureRequest = InfrastructureRequest(),
+    service: InfrastructureService = Depends(get_infrastructure_service),
+) -> InfrastructureResponse:
+    """Execute Prim's MST to connect selected EV charging stations with minimum infrastructure distance."""
+    try:
+        result = service.optimize_infrastructure(
+            station_ids=request.station_ids,
+            coverage_radius_km=request.coverage_radius_km,
+            min_feasibility_score=request.min_feasibility_score,
+            max_stations=request.max_stations,
+            cost_metric=request.cost_metric or "network_distance_km",
+        )
+        return InfrastructureResponse(**result)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Infrastructure optimization validation error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Unexpected error during infrastructure optimization: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while calculating infrastructure optimization.",
         )
 
 
