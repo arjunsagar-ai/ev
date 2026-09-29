@@ -3,6 +3,7 @@ import {
   Zap,
   Activity,
   Compass,
+  Database,
 } from 'lucide-react';
 import { MapView } from './components/MapView';
 import { RoutePanel } from './components/RoutePanel';
@@ -10,6 +11,7 @@ import { useGeolocation } from './hooks/useGeolocation';
 import {
   fetchLiveRoute,
   fetchHealth,
+  fetchNetworkInfo,
   fetchDominatingSetOptimization,
   fetchHungarianAssignment,
   fetchInfrastructureOptimization,
@@ -63,9 +65,10 @@ export const App: React.FC = () => {
 
   // Health / Backend status
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
-  const [backendVersion, setBackendVersion] = useState<string>('0.3.0');
+  const [backendVersion, setBackendVersion] = useState<string>('0.9.0');
+  const [networkSource, setNetworkSource] = useState<string | null>(null);
 
-  // Check backend health on initial mount
+  // Check backend health and road network info on initial mount
   useEffect(() => {
     let isMounted = true;
     fetchHealth()
@@ -80,6 +83,17 @@ export const App: React.FC = () => {
           setBackendStatus('offline');
         }
       });
+
+    fetchNetworkInfo()
+      .then((info) => {
+        if (isMounted && info?.data_source) {
+          setNetworkSource(info.data_source);
+        }
+      })
+      .catch(() => {
+        // network info optional on mount
+      });
+
     return () => {
       isMounted = false;
     };
@@ -370,6 +384,13 @@ export const App: React.FC = () => {
 
           {/* Backend Status Indicator */}
           <div className="flex items-center space-x-2">
+            {networkSource && (
+              <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-xs font-medium text-gray-600 border border-gray-200/60">
+                <Database className="w-3.5 h-3.5 text-gray-400" />
+                <span>Network: <strong className="capitalize">{networkSource === 'sample' ? 'Sample (Fallback)' : networkSource}</strong></span>
+              </div>
+            )}
+
             <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-xs font-medium text-gray-600 border border-gray-200/60">
               <Activity className="w-3.5 h-3.5 text-gray-400" />
               <span>Backend v{backendVersion}</span>

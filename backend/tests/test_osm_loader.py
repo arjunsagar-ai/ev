@@ -150,12 +150,14 @@ class TestLoadOSMNetwork:
 
     def test_fallback_to_sample_without_internet(self, tmp_cache_dir):
         """With no cache and no internet, the sample network should be returned."""
-        graph, meta = load_osm_network(
-            north=10.003, south=9.999, east=76.303, west=76.299,
-            cache_dir=tmp_cache_dir,
-        )
-        assert meta.data_source == "sample"
-        assert graph.num_nodes() == 15  # sample network
+        import requests
+        with patch("requests.post", side_effect=requests.ConnectionError("offline")):
+            graph, meta = load_osm_network(
+                north=10.003, south=9.999, east=76.303, west=76.299,
+                cache_dir=tmp_cache_dir,
+            )
+            assert meta.data_source == "sample"
+            assert graph.num_nodes() == 15  # sample network
 
 
 # ────────────────── Overpass query builder ────────────────────────────────
@@ -168,3 +170,110 @@ class TestOverpassQuery:
     def test_query_contains_highway_filter(self):
         q = _build_overpass_query(10.0, 9.0, 77.0, 76.0, highway_types=["primary"])
         assert "primary" in q
+
+
+# ────────────────── HTTP headers and retry (Phase 7) ─────────────────────
+
+class TestOverpassReliability:
+    """Verify HTTP headers, retry logic, and error handling in _download_osm_data."""
+
+    def test_download_sends_proper_headers(self, tmp_cache_dir, minimal_osm_data):
+        """Overpass request should include User-Agent and Accept headers."""
+        import requests
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = minimal_osm_data
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch("requests.post", return_value=mock_resp) as mock_post:
+            from app.gis.osm_loader import _download_osm_data
+            _download_osm_data(10.003, 9.999, 76.303, 76.299)
+
+            call_kwargs = mock_post.call_args
+            headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers", {})
+            assert "User-Agent" in headers
+            assert "EVChargingOptimizer" in headers["User-Agent"]
+            assert headers.get("Accept") == "application/json"
+
+    def test_download_retries_on_429(self, minimal_osm_data):
+        """HTTP 429 should trigger retry, not immediate failure."""
+        import requests
+
+        mock_429 = MagicMock()
+        mock_429.status_code = 429
+
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.json.return_value = minimal_osm_data
+        mock_200.raise_for_status = MagicMock()
+
+        with patch("requests.post", side_effect=[mock_429, mock_200]):
+            with patch("app.gis.osm_loader.time.sleep"):  # skip real delays
+                from app.gis.osm_loader import _download_osm_data
+                result = _download_osm_data(10.003, 9.999, 76.303, 76.299)
+                assert "elements" in result
+
+    def test_download_retries_on_500(self, minimal_osm_data):
+        """HTTP 5xx should trigger retry."""
+        import requests
+
+        mock_500 = MagicMock()
+        mock_500.status_code = 500
+
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.json.return_value = minimal_osm_data
+        mock_200.raise_for_status = MagicMock()
+
+        with patch("requests.post", side_effect=[mock_500, mock_200]):
+            with patch("app.gis.osm_loader.time.sleep"):
+                from app.gis.osm_loader import _download_osm_data
+                result = _download_osm_data(10.003, 9.999, 76.303, 76.299)
+                assert "elements" in result
+
+    def test_download_raises_on_406(self, minimal_osm_data):
+        """HTTP 406 should raise immediately (not retried)."""
+        import requests
+
+        mock_406 = MagicMock()
+        mock_406.status_code = 406
+        mock_406.raise_for_status.side_effect = requests.HTTPError("406 Client Error")
+
+        with patch("requests.post", return_value=mock_406):
+            from app.gis.osm_loader import _download_osm_data
+            with pytest.raises(requests.HTTPError):
+                _download_osm_data(10.003, 9.999, 76.303, 76.299)
+
+    def test_download_retries_on_connection_error(self, minimal_osm_data):
+        """ConnectionError should trigger retry."""
+        import requests
+
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.json.return_value = minimal_osm_data
+        mock_200.raise_for_status = MagicMock()
+
+        with patch("requests.post",
+                    side_effect=[requests.ConnectionError("refused"), mock_200]):
+            with patch("app.gis.osm_loader.time.sleep"):
+                from app.gis.osm_loader import _download_osm_data
+                result = _download_osm_data(10.003, 9.999, 76.303, 76.299)
+                assert "elements" in result
+
+    def test_configurable_overpass_url(self, minimal_osm_data):
+        """OVERPASS_URL env var should control the endpoint used."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = minimal_osm_data
+        mock_resp.raise_for_status = MagicMock()
+
+        custom_url = "https://overpass.kumi.systems/api/interpreter"
+        with patch("app.gis.osm_loader.settings") as mock_settings:
+            mock_settings.OVERPASS_API_URL = custom_url
+            mock_settings.OSM_HIGHWAY_TYPES = ["primary", "secondary"]
+
+            with patch("requests.post", return_value=mock_resp) as mock_post:
+                from app.gis.osm_loader import _download_osm_data
+                _download_osm_data(10.003, 9.999, 76.303, 76.299)
+                call_args = mock_post.call_args
+                assert call_args[0][0] == custom_url or call_args.kwargs.get("url") == custom_url

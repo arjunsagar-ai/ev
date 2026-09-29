@@ -11,6 +11,7 @@ import {
   X,
   ArrowRightLeft,
   Network,
+  Database,
 } from 'lucide-react';
 import {
   AssignmentResponse,
@@ -118,7 +119,7 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           ) : (
             <>
               <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
-              <span>Optimize Charging Stations</span>
+              <span>Optimize Stations (Greedy MDS)</span>
             </>
           )}
         </button>
@@ -673,6 +674,24 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
                 {routeResponse.route.node_ids.length} road nodes
               </span>
             </div>
+
+            {routeResponse.data_source && (
+              <div className="flex items-center justify-between">
+                <span className="flex items-center text-gray-500">
+                  <Database className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                  Road Network Source:
+                </span>
+                <span className={`font-semibold capitalize px-2 py-0.5 rounded text-[10px] ${
+                  routeResponse.data_source === 'osm'
+                    ? 'bg-blue-100 text-blue-800'
+                    : routeResponse.data_source === 'cache'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {routeResponse.data_source === 'sample' ? 'Sample (Offline Fallback)' : routeResponse.data_source}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

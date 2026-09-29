@@ -3,12 +3,14 @@ import { AlertCircle, X } from 'lucide-react';
 
 interface ErrorMessageProps {
   message: string;
+  title?: string;
   onDismiss?: () => void;
   onRetry?: () => void;
 }
 
 export const ErrorMessage: React.FC<ErrorMessageProps> = ({
   message,
+  title = 'Notice',
   onDismiss,
   onRetry,
 }) => {
@@ -18,7 +20,7 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({
         <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
         <div className="ml-3 flex-1">
           <h4 className="text-sm font-semibold text-red-900">
-            Routing Notice
+            {title}
           </h4>
           <p className="text-sm text-red-700 mt-1 leading-relaxed">
             {message}

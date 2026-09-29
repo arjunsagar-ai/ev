@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 class Settings:
     PROJECT_NAME: str = "Graph-Based EV Charging Station Optimization"
-    VERSION: str = "0.3.0"
+    VERSION: str = "0.9.0"
     API_V1_STR: str = "/api"
 
     # Allowed CORS origins for frontend integration
@@ -30,8 +30,11 @@ class Settings:
 
     # ── GIS / OpenStreetMap settings (Phase 2) ──────────────────────────
 
-    # Overpass API endpoint (public instance)
-    OVERPASS_API_URL: str = "https://overpass-api.de/api/interpreter"
+    # Overpass API endpoint — configurable via OVERPASS_URL env var
+    OVERPASS_API_URL: str = os.environ.get(
+        "OVERPASS_URL",
+        "https://overpass-api.de/api/interpreter",
+    )
 
     # Local cache directory for downloaded OSM data (relative to backend/)
     OSM_CACHE_DIR: str = os.path.join(

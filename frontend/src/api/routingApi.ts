@@ -32,28 +32,33 @@ export async function fetchLiveRoute(
   }
 
   if (!response.ok) {
-    let errorDetail = 'Routing service encountered an error.';
+    let errorDetail = '';
     try {
       const errorJson = await response.json();
-      if (errorJson?.detail) {
+      if (typeof errorJson?.detail === 'string') {
         errorDetail = errorJson.detail;
+      } else if (Array.isArray(errorJson?.detail)) {
+        errorDetail = errorJson.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
       }
     } catch {
       // Fall back to status text
-      errorDetail = `Server responded with status ${response.status}: ${response.statusText}`;
+    }
+
+    if (errorDetail) {
+      throw new Error(errorDetail);
     }
 
     if (response.status === 404) {
-      throw new Error(errorDetail || 'No feasible charging station could be found.');
+      throw new Error('No feasible or reachable charging station could be found.');
     }
     if (response.status === 400) {
-      throw new Error(errorDetail || 'Unable to find a nearby road from your coordinates.');
+      throw new Error('Unable to snap coordinates to the available road network.');
     }
     if (response.status >= 500) {
       throw new Error('Routing service is currently unavailable. Please try again shortly.');
     }
 
-    throw new Error(errorDetail);
+    throw new Error(`Server responded with status ${response.status}: ${response.statusText}`);
   }
 
   return response.json();

@@ -44,7 +44,7 @@ class TestPhase3APIEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert data["version"] == "0.3.0"
+        assert data["version"] == "0.9.0"
 
     def test_api_gis_network_endpoint(self, client):
         resp = client.get("/api/gis/network")
@@ -164,7 +164,7 @@ class TestPhase3APIEndpoints:
         resp = client.post("/api/route/live", json=payload)
         assert resp.status_code == 400
         data = resp.json()
-        assert "exceeding the maximum snap distance" in data["detail"]
+        assert "outside the coverage area" in data["detail"]
 
     def test_swagger_and_openapi_docs_accessible(self, client):
         resp_docs = client.get("/docs")

@@ -57,6 +57,14 @@ An optimization platform integrating graph algorithms, GIS geospatial analysis, 
   - Station map popups enriched with simulated capacity utilization data when Phase 6 analysis is active
   - All capacity values explicitly labelled as simulated/estimated — not real electrical grid capacity, actual substation limits, real feeder capacity, or utility data
   - 219 automated unit, integration, and API tests passing
+- **Phase 7 (Integration, OSM Reliability & Final Validation)**: **COMPLETE**
+  - Robust Overpass API integration with RFC-compliant `User-Agent` and `Accept` headers, exponential backoff retry on HTTP 429/5xx, and environment-configurable `OVERPASS_URL`.
+  - Transparent 3-tier road network provenance (`osm` → `cache` → `sample` offline fallback), surfaced explicitly in API schemas and UI badges.
+  - User-friendly error categorization distinguishing out-of-coverage GPS locations, disconnected road graphs, and missing feasible stations.
+  - End-to-end pipeline integration test suite validating sequential algorithmic handoffs: GPS Snapping → Dijkstra → Candidate Generation → Greedy MDS → Hungarian Matching → Prim MST → Ford-Fulkerson Max-Flow.
+  - UI honesty enhancements: greedy MDS labeling, network source indicators, and explicit planning disclaimers.
+  - Privacy review confirmed: zero persistent GPS storage, zero database writes, no cookies, no `watchPosition`.
+  - 242 automated unit, integration, and end-to-end pipeline tests passing.
 
 ---
 
@@ -235,22 +243,101 @@ A station is classified as **saturated** (a bottleneck) when its simulated utili
 
 ---
 
-## Implemented Core Algorithms
+---
 
-1. **Weighted Road Network Graph (`WeightedGraph`)**:
-   - Adjacency list representation \(G = (V, E, W)\).
-   - Supports geographical coordinate tracking (latitude/longitude), directed and undirected topologies, and automatic Haversine edge distance calculation.
-2. **Dijkstra's Algorithm (`dijkstra_shortest_path`)**:
-   - Min-priority queue implementation finding exact shortest path, distance, predecessor chain, and visited node logs.
-3. **Minimum Dominating Set (`minimum_dominating_set`)**:
-   - Practical station-placement strategy using a **greedy set-cover approximation** over graph distance within a specified coverage radius.
-   > **Note**: MDS currently uses a greedy approximation rather than an exact exponential solver, providing an $O(\ln |V|)$ approximation suitable for large-scale urban road networks.
-4. **Prim's Minimum Spanning Tree (`prim_mst`)**:
-   - Priority-queue Prim's algorithm computing the minimum-cost cable/interconnection backbone connecting charging stations and power distribution hubs.
-5. **Hungarian Algorithm (`hungarian_algorithm`)**:
-   - Kuhn-Munkres $O(n^3)$ optimal bipartite matching for square and rectangular cost matrices (e.g., $N$ EV charging requests matched to $M$ charging slots).
-6. **Ford-Fulkerson Maximum Flow / Minimum Cut (`ford_fulkerson_max_flow`)**:
-   - Edmonds-Karp BFS implementation computing network maximum power flow capacity and identifying critical saturated bottleneck transmission lines via Min-Cut.
+## End-to-End System Architecture
+
+The platform coordinates five core graph algorithms across sequential stages of EV charging infrastructure planning and live driver navigation:
+
+```
+    LIVE USER LOCATION (Browser GPS)
+                  │
+                  ▼
+          ROAD NETWORK / OSM
+       (osm / cache / sample)
+                  │
+                  ▼
+               DIJKSTRA
+         (Shortest Path Routing)
+                  │
+                  ▼
+         STATION CANDIDATES
+       (Multi-Criteria Feasibility)
+                  │
+                  ▼
+                 MDS
+      (Greedy Coverage Placement)
+                  │
+          SELECTED STATIONS
+             ↙          ↘
+       HUNGARIAN       PRIM MST
+      (EV Slot      (Infrastructure
+     Assignment)      Connection)
+             ↘          ↙
+             CAPACITY MODEL
+                  │
+                  ▼
+            FORD-FULKERSON
+          (Edmonds-Karp BFS)
+                  │
+                  ▼
+     MAX FLOW / BOTTLENECK ANALYSIS
+```
+
+---
+
+## Implemented Core Algorithms & Theoretical Complexity
+
+Each algorithm in the repository was inspected and verified against the actual Python implementation:
+
+| Algorithm | Implementation File | Strategy / Data Structure | Time Complexity | Space Complexity | Notes / Approximation |
+|---|---|---|---|---|---|
+| **Dijkstra Shortest Path** | `app/algorithms/dijkstra.py` | Min-heap via Python `heapq` | $\mathcal{O}((V + E) \log V)$ | $\mathcal{O}(V + E)$ | Exact single-source shortest path with settled-set optimization |
+| **Greedy Minimum Dominating Set** | `app/algorithms/dominating_set.py` | Bounded Dijkstra + Greedy Set Cover | $\mathcal{O}(C(V + E) \log V + k C D)$ | $\mathcal{O}(C D + V + E)$ | Greedy approximation with harmonic bound $H(\Delta) \le \ln \Delta + 1 = \mathcal{O}(\ln \|V\|)$ |
+| **Hungarian Algorithm** | `app/algorithms/hungarian.py` | Kuhn-Munkres state machine with matrix zero-padding | $\mathcal{O}(\max(N, M)^4)$ | $\mathcal{O}(\max(N, M)^2)$ | Exact minimum-weight bipartite matching for arbitrary $N \times M$ rectangular cost matrices |
+| **Prim Minimum Spanning Tree** | `app/algorithms/prim.py` | Min-priority queue edge relaxation | $\mathcal{O}(E \log V)$ | $\mathcal{O}(V + E)$ | Exact MST on connected component; cleanly tracks unreachable nodes |
+| **Ford-Fulkerson Max Flow** | `app/algorithms/ford_fulkerson.py` | Edmonds-Karp BFS via `collections.deque` | $\mathcal{O}(V \cdot E^2)$ | $\mathcal{O}(V + E)$ | Exact max-flow and residual $S-T$ cut saturated bottleneck edge extraction |
+
+### Detailed Algorithm Descriptions
+
+1. **Dijkstra's Algorithm (`dijkstra_shortest_path`)**:
+   - Computes turn-by-turn road paths from snapped GPS coordinates to charging candidates.
+   - Halts immediately when the target vertex is popped from the min-heap.
+   - Predecessor backtracking constructs the ordered node list and geographical coordinate polyline in $\mathcal{O}(V)$.
+
+2. **Minimum Dominating Set (`minimum_dominating_set`)**:
+   - Reduces the distance-constrained station placement problem to Greedy Set Cover.
+   - Precomputes candidate coverage areas using bounded Dijkstra searches within `coverage_radius_km`.
+   - Iteratively selects the candidate covering the largest number of uncovered network demand nodes until coverage criteria are satisfied.
+   - **Theoretical Guarantee**: Polynomial-time greedy heuristic providing an $\mathcal{O}(\ln |V|)$ approximation factor for an NP-hard problem.
+
+3. **Hungarian Algorithm (`hungarian_algorithm`)**:
+   - Solves the linear sum assignment problem matching $N$ electric vehicles to $M$ charging stations.
+   - Automatically pads rectangular matrices with dummy zero-cost rows/columns to handle supply/demand imbalances without loss of optimality.
+   - Dual variable adjustment and augmenting path traversal ensures globally minimal assignment distance.
+
+4. **Prim's Algorithm (`prim_mst`)**:
+   - Estimates the minimal transmission corridor or conduit distance required to interconnect active charging stations along existing road corridors.
+   - Handles disconnected network topologies gracefully by computing the MST for the primary component and explicitly enumerating unreachable stations.
+   - Reports physical road network distance in kilometers rather than fictitious currency amounts.
+
+5. **Ford-Fulkerson / Edmonds-Karp (`ford_fulkerson_max_flow`)**:
+   - Constructs a directed flow graph: `__SOURCE__` $\to$ EVs $\to$ Stations $\to$ `__SINK__`.
+   - Finds augmenting paths using Breadth-First Search (Edmonds-Karp), guaranteeing termination in $\mathcal{O}(V \cdot E^2)$ operations even with non-integer capacities.
+   - Identifies saturated transmission bottlenecks across the minimum $S-T$ cut.
+
+---
+
+## Technical Honesty & Modeling Disclaimers
+
+The platform maintains strict distinction between real-world measurements and optimization models:
+
+- **Live User Location**: Retrieved ephemerally via browser Geolocation API (`getCurrentPosition`) at request time. No location tracking, no GPS history, no database writes, no cookies, and no `localStorage` persistence.
+- **Road Network Provenance**: Clearly labeled as `osm` (live Overpass download), `cache` (locally cached OSM geometry), or `sample` (deterministic 15-node offline fallback).
+- **MDS Station Optimization**: Explicitly designated as a **Greedy Set-Cover Approximation**, not a mathematically guaranteed global minimum.
+- **Estimated Travel Time (ETA)**: Calculated using a fixed average speed ($40\text{ km/h}$) across road distances; does **not** model dynamic real-time traffic congestion.
+- **Feasibility Scores**: Multi-criteria weighted ratings ($0.0 - 1.0$) based on topological accessibility, estimated land availability, and simulated grid proximity; not physical engineering or title surveys.
+- **Charging Station Capacity**: Modeled in discrete planning units ($1$ demand unit per vehicle, $3-5$ capacity units per station); does **not** represent real electrical grid feeder ampacity, substation transformer ratings, or utility queue measurements.
 
 ---
 
@@ -267,8 +354,9 @@ cd backend
 source ../.venv/bin/activate
 pip install -r requirements.txt
 
-# Run ground-truth tests (219 tests)
+# Run ground-truth tests (242 tests)
 pytest -q
+
 
 # Start backend server
 uvicorn app.main:app --reload --port 8000

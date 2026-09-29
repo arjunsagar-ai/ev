@@ -81,19 +81,76 @@ def _download_osm_data(
     north: float, south: float, east: float, west: float,
     highway_types: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Query the Overpass API and return the raw JSON response."""
+    """Query the Overpass API and return the raw JSON response.
+
+    Sends a properly-formed HTTP request with:
+      - User-Agent identifying this project (required by Overpass API policy)
+      - Accept: application/json header
+      - Retry with exponential backoff on transient failures (429, 5xx)
+    """
     import requests  # deferred import — only used for live downloads
 
     query = _build_overpass_query(north, south, east, west, highway_types)
-    logger.info("Querying Overpass API for bbox [%.4f,%.4f,%.4f,%.4f] …",
-                south, west, north, east)
-    resp = requests.post(
-        settings.OVERPASS_API_URL,
-        data={"data": query},
-        timeout=90,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    logger.info("Querying Overpass API (%s) for bbox [%.4f,%.4f,%.4f,%.4f] …",
+                settings.OVERPASS_API_URL, south, west, north, east)
+
+    headers = {
+        "User-Agent": "EVChargingOptimizer/0.9 (academic project; https://github.com/ev-charging)",
+        "Accept": "application/json",
+    }
+
+    max_attempts = 3
+    backoff_delays = [0, 2, 5]  # seconds to wait before each attempt
+
+    last_error: Optional[Exception] = None
+    for attempt in range(max_attempts):
+        if backoff_delays[attempt] > 0:
+            logger.info("Retrying Overpass request (attempt %d/%d) after %ds …",
+                        attempt + 1, max_attempts, backoff_delays[attempt])
+            time.sleep(backoff_delays[attempt])
+        try:
+            resp = requests.post(
+                settings.OVERPASS_API_URL,
+                data={"data": query},
+                headers=headers,
+                timeout=90,
+            )
+
+            # Classify HTTP errors for logging clarity
+            if resp.status_code == 406:
+                logger.warning("Overpass returned HTTP 406 (Not Acceptable) — "
+                               "check request headers and query format.")
+            elif resp.status_code == 429:
+                logger.warning("Overpass returned HTTP 429 (Too Many Requests) — "
+                               "rate limited. Will retry if attempts remain.")
+                last_error = requests.HTTPError(
+                    f"HTTP 429: Rate limited by Overpass API", response=resp)
+                continue  # retry on 429
+            elif resp.status_code >= 500:
+                logger.warning("Overpass returned HTTP %d (server error). "
+                               "Will retry if attempts remain.", resp.status_code)
+                last_error = requests.HTTPError(
+                    f"HTTP {resp.status_code}: Overpass server error", response=resp)
+                continue  # retry on 5xx
+
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.ConnectionError as exc:
+            logger.warning("Overpass connection failed (attempt %d/%d): %s",
+                           attempt + 1, max_attempts, exc)
+            last_error = exc
+            continue  # retry on connection failure
+        except requests.Timeout as exc:
+            logger.warning("Overpass request timed out (attempt %d/%d): %s",
+                           attempt + 1, max_attempts, exc)
+            last_error = exc
+            continue  # retry on timeout
+        except requests.HTTPError:
+            raise  # non-retryable HTTP error (4xx except 429)
+
+    # All retry attempts exhausted
+    raise last_error or RuntimeError("Overpass download failed after all retry attempts.")
 
 
 # ───────────────────────── graph builder ──────────────────────────────────
@@ -297,6 +354,9 @@ def load_osm_network(
 
     # Build graph from the obtained OSM data
     graph = _build_graph_from_osm(osm_data)
+    if graph.num_nodes() == 0:
+        logger.warning("OSM data contained no usable road nodes; falling back to sample network.")
+        graph, data_source = build_sample_road_network()
     elapsed = time.perf_counter() - start
     meta = RoadNetworkMetadata(
         data_source=data_source,

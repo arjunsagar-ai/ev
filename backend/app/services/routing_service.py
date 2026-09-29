@@ -168,12 +168,23 @@ class RoutingService:
 
         # Step 3: Snap GPS coordinates to nearest road node
         # Raises ValueError if nearest road node is further than MAX_SNAP_DISTANCE_M
-        snap_result = snap_coordinates_to_road(
-            graph,
-            latitude,
-            longitude,
-            max_distance_m=settings.MAX_SNAP_DISTANCE_M,
-        )
+        try:
+            snap_result = snap_coordinates_to_road(
+                graph,
+                latitude,
+                longitude,
+                max_distance_m=settings.MAX_SNAP_DISTANCE_M,
+            )
+        except ValueError as snap_exc:
+            snap_msg = str(snap_exc)
+            if "exceeding the maximum snap distance" in snap_msg:
+                raise ValueError(
+                    "Your location appears to be outside the coverage area of the "
+                    "available road network. The nearest road node is too far from "
+                    "your coordinates. Try using a location within the network area, "
+                    "or use the simulated test coordinates."
+                ) from snap_exc
+            raise  # re-raise other ValueErrors (invalid coords etc.)
         snapped_node_id = snap_result["nearest_node"]["id"]
         distance_to_road_m = snap_result["distance_to_road_m"]
 
@@ -259,6 +270,7 @@ class RoutingService:
                 "distance_km": round(min_graph_distance, 3),
                 "estimated_eta_minutes": estimated_eta,
             },
+            "data_source": self._metadata.data_source if self._metadata else None,
         }
 
 

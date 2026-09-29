@@ -82,6 +82,10 @@ class LiveRouteResponse(BaseModel):
     distance_to_snapped_node_m: float = Field(..., description="Distance in meters from user GPS to snapped road node")
     station: StationInfo = Field(..., description="Selected feasible charging station")
     route: RouteInfo = Field(..., description="Optimal Dijkstra route from snapped node to station")
+    data_source: Optional[str] = Field(
+        default=None,
+        description="Active road network source: 'osm', 'cache', or 'sample'",
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

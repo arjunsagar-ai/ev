@@ -134,7 +134,7 @@ class TestRoutingServiceCore:
 
     def test_far_away_gps_exceeds_max_snap_distance(self, service_with_sample):
         """Point 100 km away should exceed max snapping distance."""
-        with pytest.raises(ValueError, match="exceeding the maximum snap distance"):
+        with pytest.raises(ValueError, match="outside the coverage area"):
             service_with_sample.calculate_live_route(latitude=11.500, longitude=77.500)
 
     def test_invalid_coordinates_rejected(self, service_with_sample):

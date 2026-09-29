@@ -30,6 +30,7 @@ export interface LiveRouteResponse {
   distance_to_snapped_node_m: number;
   station: StationInfo;
   route: RouteInfo;
+  data_source?: string | null;
 }
 
 export interface LiveRouteRequest {
