@@ -2,7 +2,7 @@ import React from 'react';
 import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import { formatDistance, formatEta } from '../utils/coordinates';
-import { StationInfo } from '../types/routing';
+import { StationInfo, StationUtilization } from '../types/routing';
 
 interface StationMarkerProps {
   station: StationInfo;
@@ -10,6 +10,7 @@ interface StationMarkerProps {
   etaMinutes?: number | null;
   variant?: 'route_destination' | 'mds_selected';
   coveredDemandCount?: number | null;
+  capacityUtilization?: StationUtilization | null;
 }
 
 // Custom Green Pin for Live Route Destination Station
@@ -86,6 +87,7 @@ export const StationMarker: React.FC<StationMarkerProps> = ({
   etaMinutes,
   variant = 'route_destination',
   coveredDemandCount,
+  capacityUtilization,
 }) => {
   const isMds = variant === 'mds_selected';
   const icon = isMds ? mdsStationIcon : routeStationIcon;
@@ -170,6 +172,33 @@ export const StationMarker: React.FC<StationMarkerProps> = ({
                   {coveredDemandCount}
                 </span>
               </div>
+            )}
+
+            {/* Phase 6: Simulated Capacity Utilization (if available) */}
+            {capacityUtilization && (
+              <>
+                <div className="border-t border-violet-100 pt-1.5 mt-1.5">
+                  <span className="text-[10px] font-bold text-violet-700 uppercase tracking-wide">
+                    Simulated Capacity
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Flow / Capacity:</span>
+                  <span className={`font-semibold ${capacityUtilization.is_saturated ? 'text-rose-700' : 'text-violet-700'}`}>
+                    {capacityUtilization.utilized_capacity}/{capacityUtilization.available_capacity}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Utilization:</span>
+                  <span className={`font-semibold ${capacityUtilization.is_saturated ? 'text-rose-700' : 'text-violet-700'}`}>
+                    {capacityUtilization.utilization_pct}%
+                    {capacityUtilization.is_saturated && ' ⚠ Saturated'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 leading-tight">
+                  Estimated planning values — not real grid data.
+                </p>
+              </>
             )}
           </div>
         </div>

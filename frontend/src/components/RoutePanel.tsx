@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   AssignmentResponse,
+  CapacityResponse,
   DominatingSetResponse,
   InfrastructureResponse,
   LiveRouteResponse,
@@ -51,6 +52,13 @@ interface RoutePanelProps {
   infraError: string | null;
   onOptimizeInfrastructure: () => void;
   onClearInfrastructure?: () => void;
+
+  // Phase 6: Ford-Fulkerson Capacity & Bottleneck Analysis props
+  capacityResponse: CapacityResponse | null;
+  capacityLoading: boolean;
+  capacityError: string | null;
+  onAnalyzeCapacity: () => void;
+  onClearCapacity?: () => void;
 }
 
 export const RoutePanel: React.FC<RoutePanelProps> = ({
@@ -75,6 +83,11 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
   infraError,
   onOptimizeInfrastructure,
   onClearInfrastructure,
+  capacityResponse,
+  capacityLoading,
+  capacityError,
+  onAnalyzeCapacity,
+  onClearCapacity,
 }) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200/80 shadow-lg p-5 flex flex-col space-y-4">
@@ -155,6 +168,29 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
             </>
           )}
         </button>
+
+        {/* Phase 6: Ford-Fulkerson Capacity Analysis Action Button */}
+        <button
+          type="button"
+          onClick={onAnalyzeCapacity}
+          disabled={capacityLoading || isLoading}
+          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-violet-200
+            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
+            focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 bg-violet-50 hover:bg-violet-100
+            text-violet-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
+        >
+          {capacityLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin mr-2 text-violet-600" />
+              <span>Analyzing capacity flow...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4 mr-2 text-violet-600" />
+              <span>Analyze Charging Capacity</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Infrastructure Error Message Display */}
@@ -179,6 +215,118 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           message={mdsError}
           onRetry={onOptimizeMds}
         />
+      )}
+
+      {/* Phase 6: Capacity Error Message Display */}
+      {capacityError && !capacityLoading && (
+        <ErrorMessage
+          message={capacityError}
+          onRetry={onAnalyzeCapacity}
+        />
+      )}
+
+      {/* Phase 6: Ford-Fulkerson Capacity & Bottleneck Analysis Summary Card */}
+      {capacityResponse && !capacityLoading && !capacityError && (
+        <div className="bg-gradient-to-br from-violet-50 to-purple-50/40 border border-violet-200/80 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-600 text-white shadow-xs">
+                <Zap className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Capacity Analysis
+                </h3>
+                <p className="text-sm font-bold text-gray-900">
+                  Ford-Fulkerson Max-Flow
+                </p>
+              </div>
+            </div>
+            {onClearCapacity && (
+              <button
+                type="button"
+                onClick={onClearCapacity}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                title="Hide capacity analysis"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Network Status Badge */}
+          <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold border ${
+            capacityResponse.network_status === 'fully_satisfied'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : capacityResponse.network_status === 'capacity_available'
+              ? 'bg-sky-50 text-sky-800 border-sky-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+              capacityResponse.network_status === 'fully_satisfied'
+                ? 'bg-emerald-500'
+                : capacityResponse.network_status === 'capacity_available'
+                ? 'bg-sky-500'
+                : 'bg-rose-500'
+            }`} />
+            {capacityResponse.network_status === 'fully_satisfied'
+              ? 'Fully Satisfied'
+              : capacityResponse.network_status === 'capacity_available'
+              ? 'Capacity Available'
+              : 'Capacity Limited'}
+          </div>
+
+          {/* Flow Summary */}
+          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+            <div className="bg-white/80 rounded-lg p-2 border border-violet-100">
+              <span className="text-gray-500 block">Max Flow / Demand</span>
+              <span className="text-sm font-bold text-gray-900">
+                {capacityResponse.max_flow} / {capacityResponse.total_demand}
+              </span>
+            </div>
+            <div className="bg-white/80 rounded-lg p-2 border border-violet-100">
+              <span className="text-gray-500 block">Bottleneck Stations</span>
+              <span className={`text-sm font-bold ${
+                capacityResponse.bottleneck_station_ids.length > 0 ? 'text-rose-700' : 'text-emerald-700'
+              }`}>
+                {capacityResponse.bottleneck_station_ids.length}
+              </span>
+            </div>
+          </div>
+
+          {/* Per-Station Utilization */}
+          {capacityResponse.station_utilization.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[11px] font-semibold text-gray-500 uppercase">
+                Station Utilization (Simulated)
+              </span>
+              <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                {capacityResponse.station_utilization.map((s) => (
+                  <div
+                    key={`cap-util-${s.station_id}`}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-md border text-xs ${
+                      s.is_saturated
+                        ? 'bg-rose-50 border-rose-200 text-rose-900'
+                        : 'bg-white/70 border-violet-100 text-gray-800'
+                    }`}
+                  >
+                    <span className="font-medium">
+                      <span className="text-purple-700 font-bold">{s.station_id}</span>
+                      {s.is_saturated && <span className="ml-1 text-rose-600 font-bold">⚠ Saturated</span>}
+                    </span>
+                    <span className="font-mono text-[11px] text-gray-600">
+                      {s.utilized_capacity}/{s.available_capacity} ({s.utilization_pct}%)
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-gray-500 leading-tight border-t border-violet-100 pt-2">
+            ⚡ Simulated capacity values only — not real electrical grid data. Max-flow via Edmonds-Karp BFS.
+          </p>
+        </div>
       )}
 
       {/* Phase 5C: Prim MST Infrastructure Summary Card */}

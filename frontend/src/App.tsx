@@ -13,6 +13,7 @@ import {
   fetchDominatingSetOptimization,
   fetchHungarianAssignment,
   fetchInfrastructureOptimization,
+  fetchCapacityOptimization,
 } from './api/routingApi';
 import {
   LiveRouteResponse,
@@ -20,6 +21,7 @@ import {
   DominatingSetResponse,
   AssignmentResponse,
   InfrastructureResponse,
+  CapacityResponse,
 } from './types/routing';
 
 export const App: React.FC = () => {
@@ -53,6 +55,11 @@ export const App: React.FC = () => {
   const [infraResponse, setInfraResponse] = useState<InfrastructureResponse | null>(null);
   const [infraLoading, setInfraLoading] = useState<boolean>(false);
   const [infraError, setInfraError] = useState<string | null>(null);
+
+  // Phase 6: Ford-Fulkerson Capacity & Bottleneck Analysis state
+  const [capacityResponse, setCapacityResponse] = useState<CapacityResponse | null>(null);
+  const [capacityLoading, setCapacityLoading] = useState<boolean>(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
 
   // Health / Backend status
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
@@ -282,6 +289,66 @@ export const App: React.FC = () => {
     setInfraError(null);
   };
 
+  /**
+   * Phase 6: Ford-Fulkerson Max-Flow — Analyze EV charging capacity and bottlenecks.
+   * Requires Hungarian assignments to be available first (builds the EV→Station graph).
+   * All capacity values are simulated — not real electrical grid data.
+   */
+  const handleAnalyzeCapacity = async () => {
+    setCapacityError(null);
+
+    // Require Hungarian assignments first
+    if (!hungarianResponse?.assignments || hungarianResponse.assignments.length === 0) {
+      setCapacityError('Run EV assignment (Hungarian) first to build the capacity flow graph.');
+      return;
+    }
+
+    setCapacityLoading(true);
+
+    // Build EV list from assignments (unique EVs)
+    const evMap = new Map<string, number>();
+    for (const a of hungarianResponse.assignments) {
+      evMap.set(a.ev_id, 1); // demand_units = 1 per EV (simulated)
+    }
+    const evs = Array.from(evMap.entries()).map(([ev_id, demand_units]) => ({
+      ev_id,
+      demand_units,
+    }));
+
+    // Build station list from MDS or Hungarian station IDs
+    const stationIds = mdsResponse?.selected_stations?.map((s) => s.candidate_id)
+      ?? [...new Set(hungarianResponse.assignments.map((a) => a.station_id))];
+    const stations = stationIds.map((station_id) => ({
+      station_id,
+      capacity_units: 3, // simulated capacity per station
+    }));
+
+    // Build assignments list from Hungarian result
+    const assignments = hungarianResponse.assignments.map((a) => ({
+      ev_id: a.ev_id,
+      station_id: a.station_id,
+    }));
+
+    try {
+      const result = await fetchCapacityOptimization({ evs, stations, assignments });
+      setCapacityResponse(result);
+    } catch (err: unknown) {
+      setCapacityResponse(null);
+      if (err instanceof Error) {
+        setCapacityError(err.message);
+      } else {
+        setCapacityError('An error occurred during capacity analysis.');
+      }
+    } finally {
+      setCapacityLoading(false);
+    }
+  };
+
+  const handleClearCapacity = () => {
+    setCapacityResponse(null);
+    setCapacityError(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* ── Global Header ────────────────────────────────────────── */}
@@ -344,6 +411,7 @@ export const App: React.FC = () => {
               mdsStations={mdsResponse?.selected_stations}
               hungarianResponse={hungarianResponse}
               infraResponse={infraResponse}
+              capacityResponse={capacityResponse}
             />
           </div>
 
@@ -371,6 +439,11 @@ export const App: React.FC = () => {
               infraError={infraError}
               onOptimizeInfrastructure={handleOptimizeInfrastructure}
               onClearInfrastructure={handleClearInfrastructure}
+              capacityResponse={capacityResponse}
+              capacityLoading={capacityLoading}
+              capacityError={capacityError}
+              onAnalyzeCapacity={handleAnalyzeCapacity}
+              onClearCapacity={handleClearCapacity}
             />
 
             {/* Quick Testing Card for Offline / Desktop environments */}

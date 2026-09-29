@@ -49,8 +49,14 @@ An optimization platform integrating graph algorithms, GIS geospatial analysis, 
   - REST endpoint `POST /api/optimize/infrastructure` resolving selected MDS stations, tracking connected/unconnected station components without fabricating artificial edges
   - Frontend "Optimize Infrastructure" controls, teal dashed infrastructure connection polylines with interactive popups, and comprehensive distance metrics
   - 185 automated unit, integration, and API tests passing
-- **Future Phases**:
-  - Phase 6: Ford-Fulkerson (Edmonds-Karp) maximum grid flow capacity and critical transmission bottleneck min-cut analysis
+- **Phase 6 (Ford-Fulkerson Max-Flow Capacity & Bottleneck Analysis)**: **COMPLETE**
+  - Ford-Fulkerson Edmonds-Karp max-flow service building a directed flow network `SOURCE → EVs → Stations → SINK` with simulated capacity edges
+  - Detects bottleneck stations (saturated flow), computes per-station simulated utilization, and classifies network status as `fully_satisfied`, `capacity_limited`, or `capacity_available`
+  - REST endpoint `POST /api/optimize/capacity` accepting EV demand, station capacity, and optional Hungarian assignment constraints
+  - Frontend "Analyze Charging Capacity" button (violet), result card with network status badge, per-station utilization breakdown, bottleneck indicator, and flow summary
+  - Station map popups enriched with simulated capacity utilization data when Phase 6 analysis is active
+  - All capacity values explicitly labelled as simulated/estimated — not real electrical grid capacity, actual substation limits, real feeder capacity, or utility data
+  - 219 automated unit, integration, and API tests passing
 
 ---
 
@@ -89,6 +95,7 @@ The user-facing website allows EV drivers to locate the nearest feasible chargin
 | `POST` | `/api/optimize/dominating-set` | Greedy MDS calculation for network-wide optimal EV charging station placement |
 | `POST` | `/api/optimize/assignment` | Kuhn-Munkres (Hungarian) minimum-cost bipartite EV-to-station assignment |
 | `POST` | `/api/optimize/infrastructure` | Prim's Minimum Spanning Tree (MST) for EV station infrastructure connection network |
+| `POST` | `/api/optimize/capacity` | Ford-Fulkerson Edmonds-Karp max-flow: simulated EV charging capacity and bottleneck analysis |
 | `GET` | `/docs` | Interactive Swagger UI API documentation |
 | `GET` | `/openapi.json` | OpenAPI 3.1 JSON specification |
 
@@ -192,6 +199,42 @@ While **MDS** determines which candidate sites to activate for optimal urban cov
 
 ---
 
+## EV Charging Capacity & Bottleneck Analysis via Ford-Fulkerson (Phase 6)
+
+The capacity analysis layer computes the maximum simulated flow of EV charging demand through the station network using the Ford-Fulkerson Edmonds-Karp algorithm.
+
+> ⚠️ **All capacity values are simulated/estimated for planning purposes.** This layer does **not** represent real electrical grid capacity, actual substation limits, real feeder capacity, real-time charging queue measurements, or actual utility data.
+
+### Flow Network Model
+
+```
+SOURCE  ──(demand_units)──►  EV₁  ──(demand_units)──►  Station_A  ──(capacity_units)──►  SINK
+                          ►  EV₂  ──(demand_units)──►  Station_B  ──(capacity_units)──►
+                          ►  EV₃
+```
+
+- **SOURCE → EV**: Edge capacity = EV's `demand_units` (simulated load)
+- **EV → Station**: Edge capacity = EV `demand_units` if the EV is assigned to that station (from Hungarian results if supplied); otherwise all-pairs bipartite
+- **Station → SINK**: Edge capacity = station's `capacity_units` (simulated serving capacity)
+
+### Network Status Classification
+
+| Status | Meaning |
+|---|---|
+| `fully_satisfied` | `max_flow == total_demand` with exactly zero spare station capacity |
+| `capacity_available` | Demand fully met with remaining unused station capacity |
+| `capacity_limited` | `max_flow < total_demand` — network cannot absorb all EV demand |
+
+### Bottleneck Detection
+
+A station is classified as **saturated** (a bottleneck) when its simulated utilized flow equals or exceeds its simulated capacity. `bottleneck_station_ids` lists all such stations.
+
+### API Endpoint (`POST /api/optimize/capacity`)
+- **Request**: Accepts lists of EVs (with `ev_id`, `demand_units`) and stations (with `station_id`, `capacity_units`), and an optional `assignments` array from Hungarian results.
+- **Response**: Returns `algorithm`, `network_status`, `max_flow`, `total_demand`, `station_utilization` (per-station), `bottleneck_station_ids`, `flow_edges`, and a `note` disclaimer.
+
+---
+
 ## Implemented Core Algorithms
 
 1. **Weighted Road Network Graph (`WeightedGraph`)**:
@@ -224,7 +267,7 @@ cd backend
 source ../.venv/bin/activate
 pip install -r requirements.txt
 
-# Run ground-truth tests (185 tests)
+# Run ground-truth tests (219 tests)
 pytest -q
 
 # Start backend server

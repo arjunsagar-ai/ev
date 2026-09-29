@@ -11,6 +11,7 @@ import L, { LatLngBoundsExpression } from 'leaflet';
 import { StationMarker } from './StationMarker';
 import {
   AssignmentResponse,
+  CapacityResponse,
   DominatingSetStation,
   InfrastructureResponse,
   LiveRouteResponse,
@@ -24,6 +25,7 @@ interface MapViewProps {
   mdsStations?: DominatingSetStation[] | null;
   hungarianResponse?: AssignmentResponse | null;
   infraResponse?: InfrastructureResponse | null;
+  capacityResponse?: CapacityResponse | null;
 }
 
 // Neutral default center (near sample network area)
@@ -196,6 +198,7 @@ export const MapView: React.FC<MapViewProps> = ({
   mdsStations,
   hungarianResponse,
   infraResponse,
+  capacityResponse,
 }) => {
   const routePolyline = routeResponse?.route?.coordinates;
 
@@ -257,14 +260,21 @@ export const MapView: React.FC<MapViewProps> = ({
 
         {/* MDS Optimized Station Markers */}
         {mdsStations &&
-          mdsStations.map((station) => (
-            <StationMarker
-              key={`mds-${station.candidate_id}`}
-              station={station}
-              variant="mds_selected"
-              coveredDemandCount={station.covered_demand_count}
-            />
-          ))}
+          mdsStations.map((station) => {
+            // Build per-station capacity utilization if Phase 6 data is available
+            const capUtil = capacityResponse?.station_utilization?.find(
+              (u) => u.station_id === station.candidate_id,
+            );
+            return (
+              <StationMarker
+                key={`mds-${station.candidate_id}`}
+                station={station}
+                variant="mds_selected"
+                coveredDemandCount={station.covered_demand_count}
+                capacityUtilization={capUtil}
+              />
+            );
+          })}
 
         {/* Destination Station Marker */}
         {routeResponse?.station && (

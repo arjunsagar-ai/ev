@@ -283,3 +283,116 @@ class InfrastructureResponse(BaseModel):
     connected_station_ids: List[str] = Field(default_factory=list, description="IDs of stations connected in the MST")
     unconnected_station_ids: List[str] = Field(default_factory=list, description="IDs of stations unreachable in network")
 
+
+# ===========================================================================
+# Phase 6 — Ford-Fulkerson Capacity & Bottleneck Analysis
+# ===========================================================================
+
+
+class CapacityEVInput(BaseModel):
+    """Single EV entry for capacity analysis."""
+
+    ev_id: str = Field(..., description="Unique EV identifier")
+    demand_units: int = Field(
+        default=1,
+        ge=1,
+        description="Simulated demand load this EV places on the charging network (planning units, not real kW)",
+    )
+
+
+class CapacityStationInput(BaseModel):
+    """Single station entry for capacity analysis."""
+
+    station_id: str = Field(..., description="Unique station identifier (matches MDS / Hungarian IDs)")
+    capacity_units: int = Field(
+        default=5,
+        ge=1,
+        description="Simulated serving capacity of this station (planning units, not real kW or real utility data)",
+    )
+
+
+class CapacityAssignment(BaseModel):
+    """EV-to-station assignment pair (mirrors Hungarian output)."""
+
+    ev_id: str = Field(..., description="EV identifier")
+    station_id: str = Field(..., description="Station identifier the EV is assigned to")
+
+
+class StationUtilization(BaseModel):
+    """Per-station simulated flow utilization result."""
+
+    station_id: str = Field(..., description="Station identifier")
+    available_capacity: float = Field(..., description="Simulated station capacity (planning units)")
+    utilized_capacity: float = Field(..., description="Simulated flow allocated to this station")
+    unused_capacity: float = Field(..., description="Remaining unused simulated capacity")
+    utilization_pct: float = Field(..., description="Utilization percentage (0-100)")
+    is_saturated: bool = Field(..., description="True when the station is at or above simulated capacity")
+    simulated_capacity: bool = Field(
+        default=True,
+        description="Always true — values are simulated for planning, not real electrical data",
+    )
+
+
+class CapacityFlowEdge(BaseModel):
+    """A single EV->Station flow edge in the max-flow result."""
+
+    from_ev_id: str = Field(..., description="Source EV identifier")
+    to_station_id: str = Field(..., description="Destination station identifier")
+    flow_units: float = Field(..., description="Flow units allocated on this edge")
+
+
+class CapacityRequest(BaseModel):
+    """Request payload for Ford-Fulkerson EV charging capacity analysis."""
+
+    evs: List[CapacityEVInput] = Field(
+        ...,
+        min_length=1,
+        description="List of EVs with simulated demand",
+    )
+    stations: List[CapacityStationInput] = Field(
+        ...,
+        min_length=1,
+        description="List of stations with simulated capacity",
+    )
+    assignments: Optional[List[CapacityAssignment]] = Field(
+        default=None,
+        description=(
+            "Optional EV-to-station assignments from Hungarian algorithm. "
+            "If provided, only assigned pairs form EV->Station edges. "
+            "If omitted, every EV is connected to every station."
+        ),
+    )
+
+
+class CapacityResponse(BaseModel):
+    """Response payload for Ford-Fulkerson EV charging capacity analysis."""
+
+    algorithm: str = Field(
+        default="ford_fulkerson_edmonds_karp",
+        description="Algorithm used: Ford-Fulkerson with Edmonds-Karp BFS",
+    )
+    network_status: str = Field(
+        ...,
+        description=(
+            "One of: 'fully_satisfied' (max_flow == total_demand), "
+            "'capacity_limited' (max_flow < total_demand), "
+            "'capacity_available' (demand met with spare capacity remaining)"
+        ),
+    )
+    max_flow: float = Field(..., description="Maximum simulated flow routed through the network")
+    total_demand: float = Field(..., description="Total simulated EV demand across all EVs")
+    station_utilization: List[StationUtilization] = Field(
+        ..., description="Per-station simulated utilization breakdown"
+    )
+    bottleneck_station_ids: List[str] = Field(
+        default_factory=list,
+        description="Station IDs where simulated utilization equals or exceeds simulated capacity",
+    )
+    flow_edges: List[CapacityFlowEdge] = Field(
+        default_factory=list,
+        description="EV->Station flow edges carrying positive simulated flow",
+    )
+    note: str = Field(
+        ...,
+        description="Disclaimer: all values are simulated/estimated for planning — not real utility data",
+    )

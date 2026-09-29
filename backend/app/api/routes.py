@@ -6,6 +6,8 @@ from app.core.config import settings
 from app.api.schemas import (
     AssignmentRequest,
     AssignmentResponse,
+    CapacityRequest,
+    CapacityResponse,
     DominatingSetRequest,
     DominatingSetResponse,
     HealthResponse,
@@ -27,6 +29,10 @@ from app.services.assignment_service import (
 from app.services.infrastructure_service import (
     InfrastructureService,
     get_infrastructure_service,
+)
+from app.services.capacity_service import (
+    CapacityService,
+    get_capacity_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,3 +258,46 @@ def post_infrastructure_optimization(
         )
 
 
+@router.post(
+    "/optimize/capacity",
+    response_model=CapacityResponse,
+    summary="Analyze EV charging capacity and bottlenecks (Ford-Fulkerson)",
+    description=(
+        "Builds a directed flow network (SOURCE->EVs->Stations->SINK) and computes maximum flow "
+        "using the Ford-Fulkerson Edmonds-Karp algorithm. Returns per-station simulated "
+        "utilization, bottleneck station IDs, and network status. "
+        "All capacity values are simulated/estimated for planning purposes — "
+        "not real electrical grid capacity, actual substation limits, or utility data."
+    ),
+)
+def analyze_capacity(
+    request: CapacityRequest,
+    service: CapacityService = Depends(get_capacity_service),
+) -> CapacityResponse:
+    """Run Ford-Fulkerson max-flow to analyse simulated EV charging capacity and bottlenecks."""
+    try:
+        evs = [ev.model_dump() for ev in request.evs]
+        stations = [st.model_dump() for st in request.stations]
+        assignments = (
+            [a.model_dump() for a in request.assignments]
+            if request.assignments is not None
+            else None
+        )
+        result = service.analyze_capacity(
+            evs=evs,
+            stations=stations,
+            assignments=assignments,
+        )
+        return CapacityResponse(**result)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Capacity analysis validation error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Unexpected error during capacity analysis: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while performing capacity analysis.",
+        )

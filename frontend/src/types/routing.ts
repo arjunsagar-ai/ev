@@ -165,3 +165,54 @@ export interface InfrastructureResponse {
 }
 
 
+// ============================================================================
+// Phase 6 — Ford-Fulkerson Capacity & Bottleneck Analysis
+// ============================================================================
+
+export interface CapacityEVInput {
+  ev_id: string;
+  demand_units: number;
+}
+
+export interface CapacityStationInput {
+  station_id: string;
+  capacity_units: number;
+}
+
+export interface CapacityAssignment {
+  ev_id: string;
+  station_id: string;
+}
+
+export interface StationUtilization {
+  station_id: string;
+  available_capacity: number;
+  utilized_capacity: number;
+  unused_capacity: number;
+  utilization_pct: number;
+  is_saturated: boolean;
+  simulated_capacity: boolean;
+}
+
+export interface CapacityFlowEdge {
+  from_ev_id: string;
+  to_station_id: string;
+  flow_units: number;
+}
+
+export interface CapacityRequest {
+  evs: CapacityEVInput[];
+  stations: CapacityStationInput[];
+  assignments?: CapacityAssignment[] | null;
+}
+
+export interface CapacityResponse {
+  algorithm: string;
+  network_status: 'fully_satisfied' | 'capacity_limited' | 'capacity_available';
+  max_flow: number;
+  total_demand: number;
+  station_utilization: StationUtilization[];
+  bottleneck_station_ids: string[];
+  flow_edges: CapacityFlowEdge[];
+  note: string;
+}

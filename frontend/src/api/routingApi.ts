@@ -1,6 +1,8 @@
 import {
   AssignmentRequest,
   AssignmentResponse,
+  CapacityRequest,
+  CapacityResponse,
   DominatingSetRequest,
   DominatingSetResponse,
   HealthResponse,
@@ -184,3 +186,28 @@ export async function fetchHealth(): Promise<HealthResponse> {
   return response.json();
 }
 
+export async function fetchCapacityOptimization(
+  request: CapacityRequest,
+): Promise<CapacityResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/optimize/capacity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    let errorDetail = 'Capacity analysis failed.';
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) errorDetail = errorJson.detail;
+    } catch {
+      errorDetail = `Server responded with status ${response.status}: ${response.statusText}`;
+    }
+    if (response.status >= 500) {
+      throw new Error('Capacity analysis service is currently unavailable.');
+    }
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}
