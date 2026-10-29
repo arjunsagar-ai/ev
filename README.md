@@ -1,6 +1,12 @@
-# Graph-Based EV Charging Station Optimization
+# Graph-Based EV Charging Station Optimization ⚡🚗
 
-An optimization platform integrating graph algorithms, GIS geospatial analysis, and real-time navigation to optimize electric vehicle (EV) charging station placement, power grid transmission lines, vehicle-to-charger bipartite matching, and shortest path navigation with live user GPS tracking.
+> **Geospatial graph optimization platform integrating Dijkstra routing, Greedy MDS placement, Prim's MST power grids, Kuhn-Munkres bipartite matching, and Ford-Fulkerson max-flow bottlenecks.**
+
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat&logo=python)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/Frontend-React%20%7C%20Vite-61DAFB.svg?style=flat&logo=react)](https://react.dev/)
+[![Leaflet](https://img.shields.io/badge/Mapping-Leaflet%20%2B%20OSM-199900.svg?style=flat&logo=leaflet)](https://leafletjs.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
