@@ -59,6 +59,30 @@ class Settings:
     # from the nearest road node
     MAX_SNAP_DISTANCE_M: float = 5000.0
 
+    # ── Ernakulam District Geographic Scope (Phase 7.1) ─────────────────
+    # Official bounding box enclosing all parts of Ernakulam District
+    ERNAKULAM_BBOX: Dict[str, float] = {
+        "north": 10.31,
+        "south": 9.78,
+        "east": 76.85,
+        "west": 76.16,
+    }
+
+    # Ernakulam District boundary GeoJSON path
+    ERNAKULAM_BOUNDARY_FILE: str = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "data", "ernakulam_boundary.geojson",
+    )
+
+    # National EV charging stations CSV dataset path
+    EV_STATIONS_CSV_FILE: str = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "data", "ev-charging-stations-india.csv",
+    )
+
+    # Configurable search radius in km for discovering nearby real EV stations
+    EV_STATION_SEARCH_RADIUS_KM: float = 25.0
+
     # ── Feasibility scoring weights ─────────────────────────────────────
     # Controls how candidate EV station locations are scored.
     # All weights should be non-negative. Higher weight = more important.

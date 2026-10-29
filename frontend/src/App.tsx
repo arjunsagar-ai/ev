@@ -16,19 +16,24 @@ import {
   fetchHungarianAssignment,
   fetchInfrastructureOptimization,
   fetchCapacityOptimization,
+  fetchDistrictBoundary,
+  fetchExistingStations,
+  fetchNearbyStations,
 } from './api/routingApi';
 import {
   LiveRouteResponse,
   UserCoordinates,
+  UserLocationSelection,
+  LocationSource,
   DominatingSetResponse,
   AssignmentResponse,
   InfrastructureResponse,
   CapacityResponse,
+  ExistingStation,
 } from './types/routing';
 
 export const App: React.FC = () => {
   const {
-    coordinates: geoCoords,
     loading: geoLoading,
     error: geoError,
     getLocation,
@@ -37,6 +42,22 @@ export const App: React.FC = () => {
 
   // Active user location displayed on map
   const [activeCoords, setActiveCoords] = useState<UserCoordinates | null>(null);
+
+  // User location selection state (Live GPS, Geocoding Search, or Map Click)
+  const [locationSelection, setLocationSelection] = useState<UserLocationSelection | null>(null);
+
+  // Map interactive selection state
+  const [isSelectingOnMap, setIsSelectingOnMap] = useState<boolean>(false);
+  const [pendingCoordinates, setPendingCoordinates] = useState<UserCoordinates | null>(null);
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+
+  // Phase 7.1: Ernakulam Boundary & Real Stations state
+  const [districtBoundary, setDistrictBoundary] = useState<any | null>(null);
+  const [existingStations, setExistingStations] = useState<ExistingStation[] | null>(null);
+  const [nearbyStations, setNearbyStations] = useState<ExistingStation[] | null>(null);
+  const [nearbyLoading, setNearbyLoading] = useState<boolean>(false);
+  const [nearbyMessage, setNearbyMessage] = useState<string | null>(null);
+  const [projectArea, setProjectArea] = useState<string>('Ernakulam District, Kerala');
 
   // Routing state
   const [routeResponse, setRouteResponse] = useState<LiveRouteResponse | null>(null);
@@ -68,7 +89,7 @@ export const App: React.FC = () => {
   const [backendVersion, setBackendVersion] = useState<string>('0.9.0');
   const [networkSource, setNetworkSource] = useState<string | null>(null);
 
-  // Check backend health and road network info on initial mount
+  // Check backend health, road network info, district boundary, and real stations on initial mount
   useEffect(() => {
     let isMounted = true;
     fetchHealth()
@@ -86,25 +107,35 @@ export const App: React.FC = () => {
 
     fetchNetworkInfo()
       .then((info) => {
-        if (isMounted && info?.data_source) {
-          setNetworkSource(info.data_source);
+        if (isMounted) {
+          if (info?.data_source) setNetworkSource(info.data_source);
+          if (info?.project_area) setProjectArea(info.project_area);
         }
       })
       .catch(() => {
         // network info optional on mount
       });
 
+    fetchDistrictBoundary()
+      .then((geojson) => {
+        if (isMounted) setDistrictBoundary(geojson);
+      })
+      .catch(() => {
+        // boundary load optional on mount
+      });
+
+    fetchExistingStations()
+      .then((res) => {
+        if (isMounted && res?.stations) setExistingStations(res.stations);
+      })
+      .catch(() => {
+        // existing stations load optional on mount
+      });
+
     return () => {
       isMounted = false;
     };
   }, []);
-
-  // Synchronize geolocation hook state with active coordinates
-  useEffect(() => {
-    if (geoCoords) {
-      setActiveCoords(geoCoords);
-    }
-  }, [geoCoords]);
 
   // Combined loading state and step indicator
   const isLoading = geoLoading || routeLoading;
@@ -123,27 +154,47 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Main flow: request user GPS, snap to road network, and calculate Dijkstra route.
+   * Confirms a selected location (from Live GPS, Search, or Map click),
+   * sets the active coordinates, clears pending selection, and triggers Dijkstra route calculation
+   * and nearby real EV station lookup.
    */
-  const handleUseMyLocation = async () => {
+  const handleConfirmLocation = async (
+    coords: UserCoordinates,
+    source: LocationSource,
+    label: string
+  ) => {
     handleClearError();
-    try {
-      // Step 1: Request GPS location from browser
-      const coords = await getLocation();
-      setActiveCoords(coords);
+    setLocationSelection({ coordinates: coords, source, label });
+    setActiveCoords(coords);
+    setIsSelectingOnMap(false);
+    setPendingCoordinates(null);
+    setPendingLabel(null);
 
-      // Step 2: Send GPS coordinates to backend for Dijkstra routing
-      setRouteLoading(true);
+    // Phase 7.1: Fetch verified real EV stations nearby within 25km radius
+    setNearbyLoading(true);
+    setNearbyMessage(null);
+    fetchNearbyStations(coords.latitude, coords.longitude, 25.0)
+      .then((res) => {
+        setNearbyStations(res.stations);
+        setNearbyMessage(res.message || null);
+      })
+      .catch((err: any) => {
+        setNearbyStations([]);
+        setNearbyMessage(err?.message || 'Unable to load nearby verified stations.');
+      })
+      .finally(() => {
+        setNearbyLoading(false);
+      });
+
+    setRouteLoading(true);
+    try {
       const result = await fetchLiveRoute({
         latitude: coords.latitude,
         longitude: coords.longitude,
       });
-
-      // Explicitly clear any previous error and set active route
       handleClearError();
       setRouteResponse(result);
     } catch (err: unknown) {
-      // On failure, clear any previous route so stale route is not displayed
       setRouteResponse(null);
       if (err instanceof Error) {
         setRouteError(err.message);
@@ -156,37 +207,81 @@ export const App: React.FC = () => {
   };
 
   /**
+   * Resets active location selection, clearing the computed route,
+   * active coordinates, nearby stations, and any pending map selection state.
+   */
+  const handleChangeLocation = () => {
+    setLocationSelection(null);
+    setActiveCoords(null);
+    setRouteResponse(null);
+    setNearbyStations(null);
+    setNearbyMessage(null);
+    setIsSelectingOnMap(false);
+    setPendingCoordinates(null);
+    setPendingLabel(null);
+    handleClearError();
+  };
+
+  /**
+   * Main flow for Live GPS: request user GPS, snap to road network, and calculate Dijkstra route.
+   */
+  const handleUseMyLocation = async () => {
+    handleClearError();
+    try {
+      const coords = await getLocation();
+      await handleConfirmLocation(coords, 'live', 'Live GPS');
+    } catch (err: unknown) {
+      setRouteResponse(null);
+      if (err instanceof Error) {
+        setRouteError(err.message);
+      }
+    }
+  };
+
+  /**
+   * Map picking handlers
+   */
+  const handleStartMapSelection = () => {
+    setIsSelectingOnMap(true);
+    setPendingCoordinates(null);
+    setPendingLabel(null);
+  };
+
+  const handleCancelMapSelection = () => {
+    setIsSelectingOnMap(false);
+    setPendingCoordinates(null);
+    setPendingLabel(null);
+  };
+
+  const handleClearPending = () => {
+    setPendingCoordinates(null);
+    setPendingLabel(null);
+  };
+
+  const handleSelectPendingCoords = (coords: UserCoordinates, label: string) => {
+    setPendingCoordinates(coords);
+    setPendingLabel(label);
+  };
+
+  const handleMapClick = (coords: [number, number]) => {
+    if (isSelectingOnMap) {
+      const [lat, lon] = coords;
+      setPendingCoordinates({ latitude: lat, longitude: lon });
+      setPendingLabel('Selected on Map');
+    }
+  };
+
+  /**
    * Optional helper to test coordinates near the sample network
    * if physical browser GPS is unavailable or blocked.
    */
   const handleTestSampleLocation = async () => {
-    handleClearError();
     const sampleCoords: UserCoordinates = {
       latitude: 10.001,
       longitude: 76.302,
       accuracy: 10,
     };
-    setActiveCoords(sampleCoords);
-
-    try {
-      setRouteLoading(true);
-      const result = await fetchLiveRoute({
-        latitude: sampleCoords.latitude,
-        longitude: sampleCoords.longitude,
-      });
-      // Explicitly clear any previous error and set active route
-      handleClearError();
-      setRouteResponse(result);
-    } catch (err: unknown) {
-      setRouteResponse(null);
-      if (err instanceof Error) {
-        setRouteError(err.message);
-      } else {
-        setRouteError('An error occurred calculating the route.');
-      }
-    } finally {
-      setRouteLoading(false);
-    }
+    await handleConfirmLocation(sampleCoords, 'search', 'Sample Location (Test)');
   };
 
   /**
@@ -384,6 +479,12 @@ export const App: React.FC = () => {
 
           {/* Backend Status Indicator */}
           <div className="flex items-center space-x-2">
+            {projectArea && (
+              <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-xs font-semibold text-emerald-800 border border-emerald-200/70">
+                <span>📍 Area: <strong>{projectArea}</strong></span>
+              </div>
+            )}
+
             {networkSource && (
               <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-xs font-medium text-gray-600 border border-gray-200/60">
                 <Database className="w-3.5 h-3.5 text-gray-400" />
@@ -433,17 +534,45 @@ export const App: React.FC = () => {
               hungarianResponse={hungarianResponse}
               infraResponse={infraResponse}
               capacityResponse={capacityResponse}
+              isSelectingOnMap={isSelectingOnMap}
+              onMapClick={handleMapClick}
+              pendingCoordinates={pendingCoordinates}
+              pendingLabel={pendingLabel}
+              onCancelMapSelection={handleCancelMapSelection}
+              existingStations={existingStations}
+              districtBoundary={districtBoundary}
             />
           </div>
 
           {/* Route Panel & Controls Column (4 cols on large screens) */}
           <div className="lg:col-span-4 flex flex-col space-y-4">
             <RoutePanel
+              locationSelection={locationSelection}
+              isLoadingLiveGps={geoLoading}
+              liveGpsError={geoError}
+              onUseLiveLocation={handleUseMyLocation}
+              onConfirmLocation={handleConfirmLocation}
+              onChangeLocation={handleChangeLocation}
+              isSelectingOnMap={isSelectingOnMap}
+              onStartMapSelection={handleStartMapSelection}
+              onCancelMapSelection={handleCancelMapSelection}
+              pendingCoordinates={pendingCoordinates}
+              pendingLabel={pendingLabel}
+              onClearPending={handleClearPending}
+              onSelectPendingCoords={handleSelectPendingCoords}
+
+              districtBoundary={districtBoundary}
+              existingStations={existingStations}
+              nearbyStations={nearbyStations}
+              nearbyStationsLoading={nearbyLoading}
+              nearbyStationsMessage={nearbyMessage}
+              networkSource={networkSource}
+              projectArea={projectArea}
+
               routeResponse={routeResponse}
               isLoading={isLoading}
               loadingStep={loadingStep}
               error={currentError}
-              onLocate={handleUseMyLocation}
               onClearError={handleClearError}
               mdsResponse={mdsResponse}
               mdsLoading={mdsLoading}

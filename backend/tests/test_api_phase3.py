@@ -158,13 +158,23 @@ class TestPhase3APIEndpoints:
 
     def test_post_live_route_far_away_snapping_error(self, client):
         payload = {
-            "latitude": 12.500,  # Far away from sample network (~10.0, 76.3)
-            "longitude": 77.500,
+            "latitude": 10.150,  # Inside Ernakulam, but far from sample network nodes (~10.0, 76.3)
+            "longitude": 76.250,
         }
         resp = client.post("/api/route/live", json=payload)
         assert resp.status_code == 400
         data = resp.json()
         assert "outside the coverage area" in data["detail"]
+
+    def test_post_live_route_outside_ernakulam_rejected(self, client):
+        payload = {
+            "latitude": 8.8932,  # Kollam (outside Ernakulam)
+            "longitude": 76.6141,
+        }
+        resp = client.post("/api/route/live", json=payload)
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "This project currently supports Ernakulam district, Kerala only." in data["detail"]
 
     def test_swagger_and_openapi_docs_accessible(self, client):
         resp_docs = client.get("/docs")

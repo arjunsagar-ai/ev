@@ -17,6 +17,7 @@ class NetworkInfoResponse(BaseModel):
     node_count: int = Field(..., description="Total number of nodes in the road network")
     edge_count: int = Field(..., description="Total number of edges in the road network")
     data_source: str = Field(..., description="Origin of network data: 'osm', 'cache', or 'sample'")
+    project_area: str = Field(default="Ernakulam District", description="Geographic project coverage area")
 
 
 class LiveRouteRequest(BaseModel):
@@ -62,6 +63,10 @@ class StationInfo(BaseModel):
     road_distance_m: Optional[float] = Field(None, description="Distance from candidate to nearest road node in meters")
     feasibility_score: Optional[float] = Field(None, description="Station feasibility score (0.0 to 1.0)")
     data_source: Optional[str] = Field(None, description="Data provenance: 'osm', 'cache', or 'sample'")
+    is_existing: Optional[bool] = Field(default=False, description="Whether this is an existing real station or planning candidate")
+    name: Optional[str] = Field(None, description="Station name (for real stations)")
+    address: Optional[str] = Field(None, description="Station address (for real stations)")
+    city: Optional[str] = Field(None, description="Station city / locality")
 
 
 class RouteInfo(BaseModel):
@@ -400,3 +405,50 @@ class CapacityResponse(BaseModel):
         ...,
         description="Disclaimer: all values are simulated/estimated for planning — not real utility data",
     )
+
+
+# ── Phase 7.1: Existing Real EV Charging Station schemas ────────────
+
+class ExistingStationInfo(BaseModel):
+    """Schema for a real existing EV charging station loaded from dataset."""
+    station_id: str = Field(..., description="Unique station identifier (e.g. REAL-EV-001)")
+    name: str = Field(..., description="Station name")
+    state: str = Field(default="Kerala", description="State")
+    city: str = Field(..., description="City or locality")
+    address: str = Field(..., description="Full street address")
+    latitude: float = Field(..., description="WGS-84 latitude in decimal degrees")
+    longitude: float = Field(..., description="WGS-84 longitude in decimal degrees")
+    station_type: str = Field(..., description="Charger type category from dataset")
+    is_existing: bool = Field(default=True, description="Always True for real existing stations")
+    nearest_road_node: Optional[Any] = Field(None, description="Connected road network node ID")
+    distance_km: Optional[float] = Field(None, description="Distance from user query location in km")
+
+
+class ExistingStationsResponse(BaseModel):
+    """List of existing real-world charging stations in Ernakulam District."""
+    total_stations: int = Field(..., description="Number of usable existing stations in Ernakulam District")
+    project_area: str = Field(default="Ernakulam District, Kerala", description="Geographic district scope")
+    stations: List[ExistingStationInfo] = Field(..., description="List of existing stations")
+
+
+class NearbyStationsRequest(BaseModel):
+    """Request payload to query nearby existing stations from user location."""
+    latitude: float = Field(..., description="User GPS latitude in decimal degrees")
+    longitude: float = Field(..., description="User GPS longitude in decimal degrees")
+    radius_km: Optional[float] = Field(default=25.0, description="Search radius in kilometers")
+
+    @model_validator(mode="after")
+    def validate_request_coordinates(self) -> "NearbyStationsRequest":
+        validate_coordinates(self.latitude, self.longitude)
+        if self.radius_km is not None and self.radius_km <= 0:
+            raise ValueError("radius_km must be strictly positive.")
+        return self
+
+
+class NearbyStationsResponse(BaseModel):
+    """Response containing nearby existing EV stations."""
+    user_location: UserLocation = Field(..., description="User GPS coordinates")
+    search_radius_km: float = Field(..., description="Search radius used in km")
+    total_found: int = Field(..., description="Total stations found within search radius")
+    stations: List[ExistingStationInfo] = Field(..., description="Nearby existing stations ordered by distance")
+    message: Optional[str] = Field(None, description="Guidance or status message")

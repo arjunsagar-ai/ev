@@ -10,13 +10,19 @@ from app.api.schemas import (
     CapacityResponse,
     DominatingSetRequest,
     DominatingSetResponse,
+    ExistingStationInfo,
+    ExistingStationsResponse,
     HealthResponse,
     LiveRouteRequest,
     LiveRouteResponse,
+    NearbyStationsRequest,
+    NearbyStationsResponse,
     NetworkInfoResponse,
     InfrastructureRequest,
     InfrastructureResponse,
 )
+from app.gis.ernakulam_boundary import get_ernakulam_boundary_geojson
+from app.gis.ev_station_loader import load_ernakulam_ev_stations
 from app.services.routing_service import RoutingService, get_routing_service
 from app.services.station_optimization_service import (
     StationOptimizationService,
@@ -58,7 +64,7 @@ def get_health() -> HealthResponse:
     "/gis/network",
     response_model=NetworkInfoResponse,
     summary="Get loaded road network metadata",
-    description="Returns node count, edge count, and data source of currently loaded road network.",
+    description="Returns node count, edge count, data source, and project area of currently loaded road network.",
 )
 def get_network_info(
     service: RoutingService = Depends(get_routing_service),
@@ -70,12 +76,102 @@ def get_network_info(
             node_count=summary["node_count"],
             edge_count=summary["edge_count"],
             data_source=summary["data_source"],
+            project_area=summary.get("project_area", "Ernakulam District"),
         )
     except Exception as exc:
         logger.error("Failed to retrieve network summary: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Road network is currently unavailable.",
+        )
+
+
+@router.get(
+    "/gis/boundary",
+    summary="Get Ernakulam District boundary GeoJSON",
+    description="Returns the official administrative boundary polygon for Ernakulam District, Kerala.",
+)
+def get_district_boundary() -> dict:
+    """Retrieve Ernakulam District geographic boundary GeoJSON."""
+    try:
+        return get_ernakulam_boundary_geojson()
+    except Exception as exc:
+        logger.error("Failed to retrieve district boundary: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="District boundary data is currently unavailable.",
+        )
+
+
+@router.get(
+    "/stations/existing",
+    response_model=ExistingStationsResponse,
+    summary="Get existing EV charging stations in Ernakulam District",
+    description="Returns all verified real-world charging stations loaded from the provided dataset within Ernakulam District.",
+)
+def get_existing_stations() -> ExistingStationsResponse:
+    """Retrieve list of existing EV charging stations in Ernakulam District."""
+    try:
+        stations = load_ernakulam_ev_stations()
+        station_items = [
+            ExistingStationInfo(
+                station_id=s.station_id,
+                name=s.name,
+                state=s.state,
+                city=s.city,
+                address=s.address,
+                latitude=s.latitude,
+                longitude=s.longitude,
+                station_type=s.station_type,
+                is_existing=True,
+            )
+            for s in stations
+        ]
+        return ExistingStationsResponse(
+            total_stations=len(station_items),
+            project_area="Ernakulam District, Kerala",
+            stations=station_items,
+        )
+    except Exception as exc:
+        logger.error("Failed to load existing stations: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Existing station dataset is currently unavailable.",
+        )
+
+
+@router.post(
+    "/stations/nearby",
+    response_model=NearbyStationsResponse,
+    summary="Find nearby existing EV charging stations",
+    description="Finds real charging stations within the configured search radius from user coordinates.",
+    responses={
+        400: {"description": "Location outside Ernakulam District or invalid coordinates."},
+    },
+)
+def post_nearby_stations(
+    request: NearbyStationsRequest,
+    service: RoutingService = Depends(get_routing_service),
+) -> NearbyStationsResponse:
+    """Query reachable real EV stations near the user location."""
+    try:
+        res = service.find_nearby_existing_stations(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            radius_km=request.radius_km,
+        )
+        return NearbyStationsResponse(**res)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Nearby station validation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Unexpected error in nearby stations query: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to query nearby stations.",
         )
 
 

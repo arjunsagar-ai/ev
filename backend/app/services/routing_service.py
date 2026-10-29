@@ -17,13 +17,17 @@ from app.gis.candidate_generator import (
     filter_feasible_candidates,
     generate_candidates_from_graph,
 )
+from app.gis.ernakulam_boundary import validate_in_ernakulam, is_point_in_ernakulam
+from app.gis.ev_station_loader import load_ernakulam_ev_stations, RealEVStation
 from app.gis.models import CandidateLocation, RoadNetworkMetadata
 from app.gis.osm_loader import get_road_network
 from app.gis.spatial_index import (
+    find_nearest_road_node,
     snap_coordinates_to_road,
     validate_coordinates,
 )
 from app.graph.weighted_graph import WeightedGraph
+from app.utils.distance import haversine_distance
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,7 @@ class RoutingService:
         self._metadata: Optional[RoadNetworkMetadata] = None
         self._feasible_candidates: List[CandidateLocation] = []
         self._candidates_loaded: bool = False
+        self._explicit_candidates: bool = False
 
     def get_network(self) -> Tuple[WeightedGraph, RoadNetworkMetadata]:
         """Retrieve the cached road network, or load on demand if absent."""
@@ -69,6 +74,7 @@ class RoutingService:
             graph, meta = get_road_network(**kwargs)
             self._graph = graph
             self._metadata = meta
+            self._explicit_candidates = False
             self._generate_and_cache_candidates()
             logger.info(
                 "Routing network ready: %d nodes, %d edges [%s]",
@@ -92,6 +98,7 @@ class RoutingService:
         """
         self._graph = graph
         self._metadata = metadata
+        self._explicit_candidates = candidates is not None
         if candidates is not None:
             self._feasible_candidates = candidates
             self._candidates_loaded = True
@@ -139,6 +146,87 @@ class RoutingService:
             "node_count": graph.num_nodes(),
             "edge_count": graph.num_edges(),
             "data_source": meta.data_source,
+            "project_area": "Ernakulam District",
+        }
+
+    def find_nearby_existing_stations(
+        self,
+        latitude: float,
+        longitude: float,
+        radius_km: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Identify existing EV charging stations from the dataset within radius_km
+        of the specified user coordinates.
+
+        Uses network Dijkstra distance where road nodes are reachable, falling back
+        to Haversine distance.
+        """
+        # Step 1: Validate point is inside Ernakulam District
+        validate_in_ernakulam(latitude, longitude)
+        validate_coordinates(latitude, longitude)
+
+        search_radius = radius_km if radius_km is not None else settings.EV_STATION_SEARCH_RADIUS_KM
+        real_stations = load_ernakulam_ev_stations()
+        graph, _ = self.get_network()
+
+        # Attempt to snap user to road network for Dijkstra distance
+        snapped_node_id = None
+        try:
+            snap_res = snap_coordinates_to_road(
+                graph, latitude, longitude, max_distance_m=settings.MAX_SNAP_DISTANCE_M
+            )
+            snapped_node_id = snap_res["nearest_node"]["id"]
+        except Exception:
+            snapped_node_id = None
+
+        station_results = []
+        for stn in real_stations:
+            network_dist = float("inf")
+            target_node = None
+            if snapped_node_id is not None:
+                try:
+                    target_snap = find_nearest_road_node(graph, stn.latitude, stn.longitude)
+                    target_node = target_snap["node_id"]
+                    dijkstra_res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
+                    network_dist = dijkstra_res["total_distance"]
+                except Exception:
+                    pass
+
+            if network_dist != float("inf"):
+                dist_km = round(network_dist, 2)
+            else:
+                dist_km = round(
+                    haversine_distance(latitude, longitude, stn.latitude, stn.longitude, unit="km"),
+                    2,
+                )
+
+            if dist_km <= search_radius:
+                station_results.append({
+                    "station_id": stn.station_id,
+                    "name": stn.name,
+                    "state": stn.state,
+                    "city": stn.city,
+                    "address": stn.address,
+                    "latitude": stn.latitude,
+                    "longitude": stn.longitude,
+                    "station_type": stn.station_type,
+                    "is_existing": True,
+                    "nearest_road_node": target_node,
+                    "distance_km": dist_km,
+                })
+
+        station_results.sort(key=lambda s: s["distance_km"])
+        msg = None
+        if not station_results:
+            msg = "No existing charging stations from the provided dataset were found within the configured search range."
+
+        return {
+            "user_location": {"latitude": latitude, "longitude": longitude},
+            "search_radius_km": search_radius,
+            "total_found": len(station_results),
+            "stations": station_results,
+            "message": msg,
         }
 
     def calculate_live_route(
@@ -149,25 +237,27 @@ class RoutingService:
     ) -> Dict[str, Any]:
         """
         Calculate the shortest path route from live GPS coordinates to the nearest
-        feasible EV charging station.
+        EV charging station.
 
         Workflow:
-          1. Validate coordinates
-          2. Snap GPS coordinates to nearest road network node
-          3. Query feasible station candidates
-          4. Select candidate with shortest graph distance via Dijkstra
-          5. Return route node IDs, [lat, lon] polyline, distance, and estimated ETA
+          1. Geographic boundary validation: verify point is in Ernakulam District
+          2. Coordinate validation
+          3. Snap GPS coordinates to nearest road network node
+          4. Query real existing stations from dataset; if reachable via Dijkstra,
+             route to the nearest real station.
+          5. Fallback to candidate locations if no real station is connected/reachable.
+          6. Return route node IDs, [lat, lon] polyline, distance, and estimated ETA
         """
-        # Step 1: Validate input coordinates
+        # Step 1: Validate input coordinates first, then district boundary
         validate_coordinates(latitude, longitude)
+        validate_in_ernakulam(latitude, longitude)
 
         # Step 2: Ensure road network is loaded
-        graph, _ = self.get_network()
+        graph, meta = self.get_network()
         if graph.num_nodes() == 0:
             raise RuntimeError("Road network is not initialized or contains no nodes.")
 
         # Step 3: Snap GPS coordinates to nearest road node
-        # Raises ValueError if nearest road node is further than MAX_SNAP_DISTANCE_M
         try:
             snap_result = snap_coordinates_to_road(
                 graph,
@@ -184,43 +274,84 @@ class RoutingService:
                     "your coordinates. Try using a location within the network area, "
                     "or use the simulated test coordinates."
                 ) from snap_exc
-            raise  # re-raise other ValueErrors (invalid coords etc.)
+            raise
         snapped_node_id = snap_result["nearest_node"]["id"]
         distance_to_road_m = snap_result["distance_to_road_m"]
 
-        # Step 4: Retrieve feasible candidates
-        candidates = self.get_feasible_candidates()
-        if not candidates:
-            raise LookupError("No feasible EV charging stations available in the network.")
-
-        # Step 5: Select best station based on shortest graph distance
-        best_candidate: Optional[CandidateLocation] = None
+        # Step 4: First attempt to route to nearest real existing station if on OSM/cached network
+        best_station_info: Optional[Dict[str, Any]] = None
         best_dijkstra: Optional[Dict[str, Any]] = None
         min_graph_distance: float = float("inf")
 
-        for cand in candidates:
-            target_node = cand.nearest_road_node
-            if target_node is None or not graph.has_node(target_node):
-                continue
+        use_real_stations = (meta.data_source in ("osm", "cache")) and not self._explicit_candidates
+        if use_real_stations:
+            real_stations = load_ernakulam_ev_stations()
+            for rstn in real_stations:
+                try:
+                    stn_snap = find_nearest_road_node(graph, rstn.latitude, rstn.longitude)
+                    target_node = stn_snap["node_id"]
+                    res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
+                    dist = res["total_distance"]
+                    if dist != float("inf"):
+                        if max_station_distance_km is not None and dist > max_station_distance_km:
+                            continue
+                        if dist < min_graph_distance:
+                            min_graph_distance = dist
+                            best_station_info = {
+                                "candidate_id": rstn.station_id,
+                                "name": rstn.name,
+                                "address": rstn.address,
+                                "city": rstn.city,
+                                "latitude": rstn.latitude,
+                                "longitude": rstn.longitude,
+                                "nearest_road_node": target_node,
+                                "road_distance_m": stn_snap["distance_m"],
+                                "feasibility_score": 1.0,
+                                "data_source": meta.data_source,
+                                "is_existing": True,
+                            }
+                            best_dijkstra = res
+                except Exception:
+                    continue
 
-            # Run Dijkstra to determine exact road network distance
-            res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
-            dist = res["total_distance"]
+        # Step 5: Fallback to planning candidates (sample network or when real stations unreachable)
+        if best_station_info is None or best_dijkstra is None:
+            candidates = self.get_feasible_candidates()
+            if not candidates:
+                raise LookupError("No feasible EV charging stations available in the network.")
 
-            if dist == float("inf"):
-                # Candidate is unreachable in a disconnected component
-                continue
+            for cand in candidates:
+                target_node = cand.nearest_road_node
+                if target_node is None or not graph.has_node(target_node):
+                    continue
 
-            # Check optional search radius restriction
-            if max_station_distance_km is not None and dist > max_station_distance_km:
-                continue
+                res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
+                dist = res["total_distance"]
 
-            if dist < min_graph_distance:
-                min_graph_distance = dist
-                best_candidate = cand
-                best_dijkstra = res
+                if dist == float("inf"):
+                    continue
 
-        if best_candidate is None or best_dijkstra is None:
+                if max_station_distance_km is not None and dist > max_station_distance_km:
+                    continue
+
+                if dist < min_graph_distance:
+                    min_graph_distance = dist
+                    best_station_info = {
+                        "candidate_id": cand.candidate_id,
+                        "name": f"Planning Candidate {cand.candidate_id}",
+                        "address": "Generated Planning Node",
+                        "city": "Ernakulam District",
+                        "latitude": cand.latitude,
+                        "longitude": cand.longitude,
+                        "nearest_road_node": cand.nearest_road_node,
+                        "road_distance_m": cand.road_distance_m,
+                        "feasibility_score": cand.feasibility_score,
+                        "data_source": cand.data_source,
+                        "is_existing": False,
+                    }
+                    best_dijkstra = res
+
+        if best_station_info is None or best_dijkstra is None:
             if max_station_distance_km is not None:
                 raise LookupError(
                     f"No reachable charging station found within {max_station_distance_km} km."
@@ -241,10 +372,11 @@ class RoutingService:
 
         # Sanitize logging: do NOT log raw user GPS coordinates for privacy
         logger.info(
-            "Live route computed: snapped to node %s (dist %.1f m) -> station %s (dist %.2f km)",
+            "Live route computed: snapped to node %s (dist %.1f m) -> station %s (%s, dist %.2f km)",
             snapped_node_id,
             distance_to_road_m,
-            best_candidate.candidate_id,
+            best_station_info["candidate_id"],
+            "existing" if best_station_info.get("is_existing") else "candidate",
             min_graph_distance,
         )
 
@@ -255,15 +387,7 @@ class RoutingService:
             },
             "snapped_node": snapped_node_id,
             "distance_to_snapped_node_m": distance_to_road_m,
-            "station": {
-                "candidate_id": best_candidate.candidate_id,
-                "latitude": best_candidate.latitude,
-                "longitude": best_candidate.longitude,
-                "nearest_road_node": best_candidate.nearest_road_node,
-                "road_distance_m": best_candidate.road_distance_m,
-                "feasibility_score": best_candidate.feasibility_score,
-                "data_source": best_candidate.data_source,
-            },
+            "station": best_station_info,
             "route": {
                 "node_ids": path_nodes,
                 "coordinates": coordinates,

@@ -17,20 +17,46 @@ import {
   AssignmentResponse,
   CapacityResponse,
   DominatingSetResponse,
+  ExistingStation,
   InfrastructureResponse,
   LiveRouteResponse,
+  LocationSource,
+  UserCoordinates,
+  UserLocationSelection,
 } from '../types/routing';
 import { formatDistance, formatEta } from '../utils/coordinates';
-import { LocationButton } from './LocationButton';
 import { LoadingState } from './LoadingState';
 import { ErrorMessage } from './ErrorMessage';
+import { LocationCard } from './LocationCard';
 
 interface RoutePanelProps {
+  locationSelection: UserLocationSelection | null;
+  isLoadingLiveGps: boolean;
+  liveGpsError: string | null;
+  onUseLiveLocation: () => void;
+  onConfirmLocation: (coords: UserCoordinates, source: LocationSource, label: string) => void;
+  onChangeLocation: () => void;
+  isSelectingOnMap: boolean;
+  onStartMapSelection: () => void;
+  onCancelMapSelection: () => void;
+  pendingCoordinates: UserCoordinates | null;
+  pendingLabel: string | null;
+  onClearPending: () => void;
+  onSelectPendingCoords: (coords: UserCoordinates, label: string) => void;
+
+  // Phase 7.1: Ernakulam District Scope & Real EV Stations props
+  districtBoundary?: any;
+  existingStations?: ExistingStation[] | null;
+  nearbyStations?: ExistingStation[] | null;
+  nearbyStationsLoading?: boolean;
+  nearbyStationsMessage?: string | null;
+  networkSource?: string | null;
+  projectArea?: string | null;
+
   routeResponse: LiveRouteResponse | null;
   isLoading: boolean;
   loadingStep: 'gps' | 'routing' | null;
   error: string | null;
-  onLocate: () => void;
   onClearError?: () => void;
 
   // Phase 5A: MDS Optimization props
@@ -63,11 +89,30 @@ interface RoutePanelProps {
 }
 
 export const RoutePanel: React.FC<RoutePanelProps> = ({
+  locationSelection,
+  isLoadingLiveGps,
+  liveGpsError,
+  onUseLiveLocation,
+  onConfirmLocation,
+  onChangeLocation,
+  isSelectingOnMap,
+  onStartMapSelection,
+  onCancelMapSelection,
+  pendingCoordinates,
+  pendingLabel,
+  onClearPending,
+  onSelectPendingCoords,
+  districtBoundary,
+  existingStations: _existingStations,
+  nearbyStations,
+  nearbyStationsLoading = false,
+  nearbyStationsMessage,
+  networkSource,
+  projectArea,
   routeResponse,
   isLoading,
   loadingStep,
   error,
-  onLocate,
   onClearError,
   mdsResponse,
   mdsLoading,
@@ -92,106 +137,296 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
 }) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200/80 shadow-lg p-5 flex flex-col space-y-4">
-      {/* Action Button */}
-      <div className="space-y-2">
-        <LocationButton
-          onClick={onLocate}
-          isLoading={isLoading}
-          isError={!!error}
-          loadingStep={loadingStep}
-        />
+      {/* ── Geographic Scope & Road Network Indicator ── */}
+      <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
+        <div className="flex items-center space-x-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-xs text-xs font-bold">
+            📍
+          </span>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+              Project Area
+            </div>
+            <div className="font-semibold text-emerald-950">
+              {projectArea || 'Ernakulam District, Kerala'}
+            </div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            Road Network
+          </div>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold capitalize ${
+            networkSource === 'osm'
+              ? 'bg-blue-100 text-blue-800'
+              : networkSource === 'cache'
+              ? 'bg-green-100 text-green-800'
+              : 'bg-amber-100 text-amber-800'
+          }`}>
+            {networkSource === 'sample' ? 'Offline Sample' : networkSource ? networkSource.toUpperCase() : 'Ready'}
+          </span>
+        </div>
+      </div>
 
-        {/* Network Optimization Action Button */}
-        <button
-          type="button"
-          onClick={onOptimizeMds}
-          disabled={mdsLoading || isLoading}
-          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-purple-200 
-            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none 
-            focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 bg-purple-50 hover:bg-purple-100 
-            text-purple-700 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
-        >
-          {mdsLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin mr-2 text-purple-600" />
-              <span>Optimizing station placement...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
-              <span>Optimize Stations (Greedy MDS)</span>
-            </>
-          )}
-        </button>
+      {/* 📍 Step 1: Your Location Card */}
+      <LocationCard
+        locationSelection={locationSelection}
+        isLoadingLiveGps={isLoadingLiveGps}
+        liveGpsError={liveGpsError}
+        onUseLiveLocation={onUseLiveLocation}
+        onConfirmLocation={onConfirmLocation}
+        onChangeLocation={onChangeLocation}
+        isSelectingOnMap={isSelectingOnMap}
+        onStartMapSelection={onStartMapSelection}
+        onCancelMapSelection={onCancelMapSelection}
+        pendingCoordinates={pendingCoordinates}
+        pendingLabel={pendingLabel}
+        onClearPending={onClearPending}
+        onSelectPendingCoords={onSelectPendingCoords}
+        districtBoundary={districtBoundary}
+      />
 
-        {/* Phase 5B: Hungarian Bipartite Assignment Action Button */}
-        <button
-          type="button"
-          onClick={onAssignHungarian}
-          disabled={hungarianLoading || isLoading}
-          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-amber-200 
-            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none 
-            focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 bg-amber-50 hover:bg-amber-100 
-            text-amber-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
-        >
-          {hungarianLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin mr-2 text-amber-600" />
-              <span>Calculating Hungarian matching...</span>
-            </>
-          ) : (
-            <>
-              <ArrowRightLeft className="w-4 h-4 mr-2 text-amber-600" />
-              <span>Assign EVs to Stations</span>
-            </>
-          )}
-        </button>
+      {/* ── Nearby Real EV Charging Stations Card (from dataset) ── */}
+      {locationSelection && (
+        <div className="bg-gradient-to-br from-slate-50 to-emerald-50/30 border border-emerald-200/80 rounded-xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-700 text-white text-xs font-bold">
+                ⚡
+              </span>
+              <div>
+                <h4 className="text-xs font-bold text-gray-900">
+                  Verified Real EV Stations
+                </h4>
+                <p className="text-[10px] text-gray-500">
+                  Ernakulam District Dataset &bull; Max 25 km radius
+                </p>
+              </div>
+            </div>
+            {nearbyStations && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                {nearbyStations.length} nearby
+              </span>
+            )}
+          </div>
 
-        {/* Phase 5C: Prim MST Infrastructure Optimization Action Button */}
-        <button
-          type="button"
-          onClick={onOptimizeInfrastructure}
-          disabled={infraLoading || isLoading}
-          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-teal-200 
-            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none 
-            focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 bg-teal-50 hover:bg-teal-100 
-            text-teal-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
-        >
-          {infraLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin mr-2 text-teal-600" />
-              <span>Optimizing infrastructure MST...</span>
-            </>
-          ) : (
-            <>
-              <Network className="w-4 h-4 mr-2 text-teal-600" />
-              <span>Optimize Infrastructure</span>
-            </>
+          {nearbyStationsLoading && (
+            <div className="flex items-center justify-center space-x-2 py-3 text-xs text-gray-500">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+              <span>Scanning verified charging stations in Ernakulam...</span>
+            </div>
           )}
-        </button>
 
-        {/* Phase 6: Ford-Fulkerson Capacity Analysis Action Button */}
-        <button
-          type="button"
-          onClick={onAnalyzeCapacity}
-          disabled={capacityLoading || isLoading}
-          className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-violet-200
-            text-sm font-semibold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
-            focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 bg-violet-50 hover:bg-violet-100
-            text-violet-800 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
-        >
-          {capacityLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin mr-2 text-violet-600" />
-              <span>Analyzing capacity flow...</span>
-            </>
-          ) : (
-            <>
-              <Zap className="w-4 h-4 mr-2 text-violet-600" />
-              <span>Analyze Charging Capacity</span>
-            </>
+          {!nearbyStationsLoading && nearbyStationsMessage && nearbyStations?.length === 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-lg text-xs">
+              {nearbyStationsMessage}
+            </div>
           )}
-        </button>
+
+          {!nearbyStationsLoading && nearbyStations && nearbyStations.length > 0 && (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {nearbyStations.map((st) => (
+                <div
+                  key={`nearby-${st.station_id}`}
+                  className="bg-white/90 border border-emerald-100 rounded-lg p-2 text-xs flex items-center justify-between shadow-xs hover:border-emerald-300 transition-colors"
+                >
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="font-semibold text-gray-900 truncate">
+                      {st.name}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {st.address || st.city}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {st.distance_km != null ? formatDistance(st.distance_km) : 'In range'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="text-[10px] text-gray-400 border-t border-gray-100 pt-1.5 flex items-center justify-between">
+            <span>Real Stations: Verified dataset</span>
+            <span>MDS Candidates: Optimization nodes</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Workflow Stepper Indicator ── */}
+      <div className="bg-gray-50 border border-gray-200/70 rounded-xl p-2.5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+          Optimization Workflow:
+        </p>
+        <div className="flex items-center justify-between text-[11px] font-semibold text-gray-500">
+          <div className={`flex items-center space-x-1 ${locationSelection ? 'text-emerald-700 font-bold' : 'text-gray-900 font-bold'}`}>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+              locationSelection ? 'bg-emerald-600 text-white' : 'bg-gray-300 text-gray-700'
+            }`}>
+              1
+            </span>
+            <span>Location</span>
+          </div>
+          <span className="text-gray-300">→</span>
+          <div className={`flex items-center space-x-1 ${mdsResponse ? 'text-purple-700 font-bold' : locationSelection ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+              mdsResponse ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'
+            }`}>
+              2
+            </span>
+            <span>Stations</span>
+          </div>
+          <span className="text-gray-300">→</span>
+          <div className={`flex items-center space-x-1 ${hungarianResponse ? 'text-amber-700 font-bold' : mdsResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+              hungarianResponse ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-600'
+            }`}>
+              3
+            </span>
+            <span>EVs</span>
+          </div>
+          <span className="text-gray-300">→</span>
+          <div className={`flex items-center space-x-1 ${infraResponse ? 'text-teal-700 font-bold' : mdsResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+              infraResponse ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-600'
+            }`}>
+              4
+            </span>
+            <span>MST</span>
+          </div>
+          <span className="text-gray-300">→</span>
+          <div className={`flex items-center space-x-1 ${capacityResponse ? 'text-violet-700 font-bold' : hungarianResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+              capacityResponse ? 'bg-violet-600 text-white' : 'bg-gray-200 text-gray-600'
+            }`}>
+              5
+            </span>
+            <span>Capacity</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Optimization Actions ── */}
+      <div className="space-y-3">
+        {!locationSelection && (
+          <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-center text-xs text-amber-800 font-medium">
+            📍 Set your location first to enable charging station optimization.
+          </div>
+        )}
+
+        {/* Step 2: Network Optimization Action Button (Greedy MDS) */}
+        <div>
+          <button
+            type="button"
+            onClick={onOptimizeMds}
+            disabled={!locationSelection || mdsLoading || isLoading}
+            className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-purple-200
+              text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
+              focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 bg-purple-50 hover:bg-purple-100
+              text-purple-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            {mdsLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-2 text-purple-600" />
+                <span>Optimizing station placement...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-purple-600" />
+                <span>✨ Optimize Stations (Greedy MDS)</span>
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-gray-500 mt-1 px-1 leading-tight">
+            Selects feasible charging-station locations using greedy network coverage optimization.
+          </p>
+        </div>
+
+        {/* Step 3: Phase 5B: Hungarian Bipartite Assignment Action Button */}
+        <div>
+          <button
+            type="button"
+            onClick={onAssignHungarian}
+            disabled={!locationSelection || hungarianLoading || isLoading}
+            className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-amber-200
+              text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
+              focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 bg-amber-50 hover:bg-amber-100
+              text-amber-800 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            {hungarianLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-2 text-amber-600" />
+                <span>Calculating Hungarian matching...</span>
+              </>
+            ) : (
+              <>
+                <ArrowRightLeft className="w-3.5 h-3.5 mr-2 text-amber-600" />
+                <span>⇄ Assign EVs to Stations</span>
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-gray-500 mt-1 px-1 leading-tight">
+            Assigns EV requests to selected charging stations.
+          </p>
+        </div>
+
+        {/* Step 4: Phase 5C: Prim MST Infrastructure Optimization Action Button */}
+        <div>
+          <button
+            type="button"
+            onClick={onOptimizeInfrastructure}
+            disabled={!locationSelection || infraLoading || isLoading}
+            className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-teal-200
+              text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
+              focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 bg-teal-50 hover:bg-teal-100
+              text-teal-800 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            {infraLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-2 text-teal-600" />
+                <span>Optimizing infrastructure MST...</span>
+              </>
+            ) : (
+              <>
+                <Network className="w-3.5 h-3.5 mr-2 text-teal-600" />
+                <span>♧ Optimize Infrastructure</span>
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-gray-500 mt-1 px-1 leading-tight">
+            Finds a minimum connection network between selected stations.
+          </p>
+        </div>
+
+        {/* Step 5: Phase 6: Ford-Fulkerson Capacity Analysis Action Button */}
+        <div>
+          <button
+            type="button"
+            onClick={onAnalyzeCapacity}
+            disabled={!locationSelection || capacityLoading || isLoading}
+            className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-violet-200
+              text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
+              focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 bg-violet-50 hover:bg-violet-100
+              text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            {capacityLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-2 text-violet-600" />
+                <span>Analyzing capacity flow...</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 mr-2 text-violet-600" />
+                <span>⚡ Analyze Charging Capacity</span>
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-gray-500 mt-1 px-1 leading-tight">
+            Calculates modeled charging capacity and identifies bottlenecks using Ford-Fulkerson.
+          </p>
+        </div>
       </div>
 
       {/* Infrastructure Error Message Display */}
@@ -597,7 +832,11 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
         <ErrorMessage
           message={error}
           onDismiss={onClearError}
-          onRetry={onLocate}
+          onRetry={
+            locationSelection
+              ? () => onConfirmLocation(locationSelection.coordinates, locationSelection.source, locationSelection.label || 'Confirmed Location')
+              : onUseLiveLocation
+          }
         />
       )}
 
@@ -607,16 +846,34 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           {/* Status Badge & Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+              <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-white shadow-sm ${
+                routeResponse.station.is_existing ? 'bg-emerald-600' : 'bg-purple-600'
+              }`}>
                 <Zap className="w-4 h-4" />
               </span>
               <div>
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Destination Station
-                </h3>
+                <div className="flex items-center space-x-1.5">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Destination Station
+                  </h3>
+                  {routeResponse.station.is_existing ? (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Real EV Station
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                      Planning Candidate
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm font-bold text-gray-900">
-                  {routeResponse.station.candidate_id}
+                  {routeResponse.station.name || routeResponse.station.candidate_id}
                 </p>
+                {routeResponse.station.address && (
+                  <p className="text-[11px] text-gray-600 truncate max-w-[200px] sm:max-w-xs">
+                    {routeResponse.station.address}
+                  </p>
+                )}
               </div>
             </div>
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -625,7 +882,9 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           </div>
 
           <p className="text-xs text-emerald-800 font-medium">
-            Nearest feasible charging station
+            {routeResponse.station.is_existing
+              ? 'Nearest verified EV charging station via road network Dijkstra'
+              : 'Nearest feasible candidate charging station'}
           </p>
 
           {/* Key Metrics Grid */}

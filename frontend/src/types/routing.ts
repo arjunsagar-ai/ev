@@ -15,6 +15,38 @@ export interface StationInfo {
   road_distance_m?: number | null;
   feasibility_score?: number | null;
   data_source?: string | null;
+  is_existing?: boolean;
+  name?: string | null;
+  address?: string | null;
+  city?: string | null;
+}
+
+export interface ExistingStation {
+  station_id: string;
+  name: string;
+  state: string;
+  city: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  station_type: string;
+  is_existing: boolean;
+  nearest_road_node?: string | number | null;
+  distance_km?: number | null;
+}
+
+export interface ExistingStationsResponse {
+  total_stations: number;
+  project_area: string;
+  stations: ExistingStation[];
+}
+
+export interface NearbyStationsResponse {
+  user_location: UserLocation;
+  search_radius_km: number;
+  total_found: number;
+  stations: ExistingStation[];
+  message?: string | null;
 }
 
 export interface RouteInfo {
@@ -43,6 +75,7 @@ export interface NetworkInfoResponse {
   node_count: number;
   edge_count: number;
   data_source: string;
+  project_area?: string;
 }
 
 export interface HealthResponse {
@@ -54,6 +87,23 @@ export interface UserCoordinates {
   latitude: number;
   longitude: number;
   accuracy?: number;
+}
+
+export type LocationSource = 'live' | 'search' | 'map';
+
+export interface UserLocationSelection {
+  coordinates: UserCoordinates;
+  source: LocationSource;
+  label?: string;
+}
+
+export interface GeocodeResult {
+  placeId: string | number;
+  name: string;
+  displayName: string;
+  latitude: number;
+  longitude: number;
+  type?: string;
 }
 
 // ── Phase 5A: Minimum Dominating Set (MDS) types ──────────────────

@@ -5,12 +5,14 @@ import {
   CapacityResponse,
   DominatingSetRequest,
   DominatingSetResponse,
+  ExistingStationsResponse,
   HealthResponse,
   LiveRouteRequest,
-    LiveRouteResponse,
-    NetworkInfoResponse,
-    InfrastructureRequest,
-    InfrastructureResponse,
+  LiveRouteResponse,
+  NearbyStationsResponse,
+  NetworkInfoResponse,
+  InfrastructureRequest,
+  InfrastructureResponse,
 } from '../types/routing';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -210,6 +212,47 @@ export async function fetchCapacityOptimization(
     }
     if (response.status >= 500) {
       throw new Error('Capacity analysis service is currently unavailable.');
+    }
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}
+
+export async function fetchDistrictBoundary(): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/gis/boundary`);
+  if (!response.ok) {
+    throw new Error('Failed to load district boundary.');
+  }
+  return response.json();
+}
+
+export async function fetchExistingStations(): Promise<ExistingStationsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/stations/existing`);
+  if (!response.ok) {
+    throw new Error('Failed to load existing EV charging stations.');
+  }
+  return response.json();
+}
+
+export async function fetchNearbyStations(
+  latitude: number,
+  longitude: number,
+  radiusKm: number = 25.0,
+): Promise<NearbyStationsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/stations/nearby`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ latitude, longitude, radius_km: radiusKm }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = 'Failed to find nearby stations.';
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) errorDetail = errorJson.detail;
+    } catch {
+      // fallback
     }
     throw new Error(errorDetail);
   }

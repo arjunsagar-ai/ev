@@ -373,16 +373,20 @@ def load_osm_network(
 
 
 def get_road_network(
-    north: float = 10.007,
-    south: float = 9.999,
-    east: float = 76.321,
-    west: float = 76.299,
+    north: Optional[float] = None,
+    south: Optional[float] = None,
+    east: Optional[float] = None,
+    west: Optional[float] = None,
     **kwargs: Any,
 ) -> Tuple[WeightedGraph, RoadNetworkMetadata]:
     """
     Convenience wrapper with sensible defaults.
 
-    The default bbox is a small generic area matching the sample network
-    coordinates—**not** hardcoded to any named city.
+    Defaults to the official bounding box enclosing Ernakulam District,
+    Kerala (Phase 7.1).
     """
-    return load_osm_network(north, south, east, west, **kwargs)
+    n = north if north is not None else settings.ERNAKULAM_BBOX["north"]
+    s = south if south is not None else settings.ERNAKULAM_BBOX["south"]
+    e = east if east is not None else settings.ERNAKULAM_BBOX["east"]
+    w = west if west is not None else settings.ERNAKULAM_BBOX["west"]
+    return load_osm_network(n, s, e, w, **kwargs)

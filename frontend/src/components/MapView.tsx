@@ -5,14 +5,18 @@ import {
   Marker,
   Popup,
   Polyline,
+  GeoJSON,
   useMap,
+  useMapEvents,
 } from 'react-leaflet';
 import L, { LatLngBoundsExpression } from 'leaflet';
+import { X } from 'lucide-react';
 import { StationMarker } from './StationMarker';
 import {
   AssignmentResponse,
   CapacityResponse,
   DominatingSetStation,
+  ExistingStation,
   InfrastructureResponse,
   LiveRouteResponse,
   UserCoordinates,
@@ -26,11 +30,94 @@ interface MapViewProps {
   hungarianResponse?: AssignmentResponse | null;
   infraResponse?: InfrastructureResponse | null;
   capacityResponse?: CapacityResponse | null;
+  isSelectingOnMap?: boolean;
+  onMapClick?: (coords: [number, number]) => void;
+  pendingCoordinates?: UserCoordinates | null;
+  pendingLabel?: string | null;
+  onCancelMapSelection?: () => void;
+  existingStations?: ExistingStation[] | null;
+  districtBoundary?: any;
 }
 
-// Neutral default center (near sample network area)
-const DEFAULT_CENTER: [number, number] = [10.003, 76.310];
-const DEFAULT_ZOOM = 14;
+// Neutral default center for Ernakulam District
+const DEFAULT_CENTER: [number, number] = [10.020, 76.330];
+const DEFAULT_ZOOM = 12;
+
+// Custom Green Pin for Verified Existing EV Stations from dataset
+const existingStationIcon = L.divIcon({
+  className: 'custom-real-station-marker',
+  html: `
+    <div style="
+      width: 26px;
+      height: 26px;
+      background: #059669;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: bold;
+    ">
+      ⚡
+    </div>
+  `,
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+  popupAnchor: [0, -13],
+});
+
+// Custom Amber Pulsing Pending Location Marker for Search / Map Picking preview
+const pendingMarkerIcon = L.divIcon({
+  className: 'custom-pending-location-marker',
+  html: `
+    <div style="
+      position: relative;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    ">
+      <div style="
+        position: absolute;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: rgba(245, 158, 11, 0.4);
+        box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+      "></div>
+      <div style="
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #f59e0b;
+        border: 2.5px solid #ffffff;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+      "></div>
+    </div>
+  `,
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+  popupAnchor: [0, -14],
+});
+
+// Map click event interceptor
+const MapClickHandler: React.FC<{
+  active: boolean;
+  onMapClick?: (coords: [number, number]) => void;
+}> = ({ active, onMapClick }) => {
+  useMapEvents({
+    click(e) {
+      if (active && onMapClick) {
+        onMapClick([e.latlng.lat, e.latlng.lng]);
+      }
+    },
+  });
+  return null;
+};
 
 // Custom Blue Pulsing User Location Marker
 const userMarkerIcon = L.divIcon({
@@ -101,19 +188,31 @@ const evMarkerIcon = (label: string) =>
  */
 const MapAutoBounds: React.FC<{
   userCoordinates: UserCoordinates | null;
+  pendingCoordinates?: UserCoordinates | null;
   routeCoordinates?: [number, number][];
   mdsStations?: DominatingSetStation[] | null;
   hungarianResponse?: AssignmentResponse | null;
   infraResponse?: InfrastructureResponse | null;
-}> = ({ userCoordinates, routeCoordinates, mdsStations, hungarianResponse, infraResponse }) => {
+}> = ({ userCoordinates, pendingCoordinates, routeCoordinates, mdsStations, hungarianResponse, infraResponse }) => {
   const map = useMap();
   const prevRouteRef = useRef<string | null>(null);
+  const prevPendingRef = useRef<string | null>(null);
   const prevUserRef = useRef<string | null>(null);
   const prevMdsRef = useRef<string | null>(null);
   const prevHungarianRef = useRef<string | null>(null);
   const prevInfraRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // 0. If pending preview coordinates exist and changed, center view on preview
+    if (pendingCoordinates) {
+      const pKey = `${pendingCoordinates.latitude},${pendingCoordinates.longitude}`;
+      if (pKey !== prevPendingRef.current) {
+        prevPendingRef.current = pKey;
+        map.setView([pendingCoordinates.latitude, pendingCoordinates.longitude], 15);
+        return;
+      }
+    }
+
     // 1. If route coordinates exist and changed, fit the view to encompass the entire route
     if (routeCoordinates && routeCoordinates.length > 0) {
       const routeKey = JSON.stringify(routeCoordinates);
@@ -199,21 +298,52 @@ export const MapView: React.FC<MapViewProps> = ({
   hungarianResponse,
   infraResponse,
   capacityResponse,
+  isSelectingOnMap,
+  onMapClick,
+  pendingCoordinates,
+  pendingLabel,
+  onCancelMapSelection,
+  existingStations,
+  districtBoundary,
 }) => {
   const routePolyline = routeResponse?.route?.coordinates;
 
   return (
-    <div className="relative w-full h-full min-h-[400px] rounded-2xl overflow-hidden border border-gray-200/80 shadow-md">
+    <div className={`relative w-full h-full min-h-[400px] rounded-2xl overflow-hidden border border-gray-200/80 shadow-md ${
+      isSelectingOnMap ? 'ring-2 ring-blue-500' : ''
+    }`}>
+      {/* Floating Map Picking Instruction Banner */}
+      {isSelectingOnMap && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600/95 backdrop-blur-xs text-white px-4 py-2 rounded-xl shadow-lg flex items-center space-x-2 text-xs font-semibold animate-pulse">
+          <span>🗺️ Click anywhere on the map to set your location</span>
+          {onCancelMapSelection && (
+            <button
+              type="button"
+              onClick={onCancelMapSelection}
+              className="ml-2 bg-blue-700 hover:bg-blue-800 text-white p-1 rounded-md transition-colors"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       <MapContainer
         center={
-          userCoordinates
+          pendingCoordinates
+            ? [pendingCoordinates.latitude, pendingCoordinates.longitude]
+            : userCoordinates
             ? [userCoordinates.latitude, userCoordinates.longitude]
             : DEFAULT_CENTER
         }
         zoom={DEFAULT_ZOOM}
         scrollWheelZoom={true}
-        className="w-full h-full"
+        className={`w-full h-full ${isSelectingOnMap ? 'cursor-crosshair' : ''}`}
       >
+        {/* Map Click Handler for "Choose on Map" mode */}
+        <MapClickHandler active={!!isSelectingOnMap} onMapClick={onMapClick} />
+
         {/* OpenStreetMap Standard Vector Tiles */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -224,11 +354,77 @@ export const MapView: React.FC<MapViewProps> = ({
         {/* Auto Bounds and View Handler */}
         <MapAutoBounds
           userCoordinates={userCoordinates}
+          pendingCoordinates={pendingCoordinates}
           routeCoordinates={routePolyline}
           mdsStations={mdsStations}
           hungarianResponse={hungarianResponse}
           infraResponse={infraResponse}
         />
+
+        {/* Ernakulam District Administrative Boundary Outline */}
+        {districtBoundary && (
+          <GeoJSON
+            key="ernakulam-district-boundary-layer"
+            data={districtBoundary}
+            pathOptions={{
+              color: '#059669',
+              weight: 2,
+              dashArray: '6, 6',
+              fillColor: '#10b981',
+              fillOpacity: 0.03,
+            }}
+          />
+        )}
+
+        {/* Existing Real-World EV Charging Stations (from CSV dataset) */}
+        {existingStations &&
+          existingStations.map((stn) => (
+            <Marker
+              key={`existing-${stn.station_id}`}
+              position={[stn.latitude, stn.longitude]}
+              icon={existingStationIcon}
+            >
+              <Popup>
+                <div className="p-1 text-xs max-w-[220px]">
+                  <div className="flex items-center justify-between pb-1 mb-1 border-b border-gray-100">
+                    <span className="font-bold text-gray-900 text-xs truncate mr-1.5">{stn.name}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 whitespace-nowrap">
+                      Existing EV Station
+                    </span>
+                  </div>
+                  <p className="text-gray-600 text-[11px] leading-tight mb-1">{stn.address}</p>
+                  <p className="text-gray-500 text-[10px]">
+                    Locality: <strong>{stn.city}</strong> &bull; Type: <strong>{stn.station_type}</strong>
+                  </p>
+                  {stn.distance_km !== undefined && stn.distance_km !== null && (
+                    <p className="text-emerald-700 font-bold mt-1 text-[11px]">
+                      Distance: {stn.distance_km} km
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
+        {/* Pending Location Preview Marker */}
+        {pendingCoordinates && (
+          <Marker
+            position={[pendingCoordinates.latitude, pendingCoordinates.longitude]}
+            icon={pendingMarkerIcon}
+          >
+            <Popup>
+              <div className="p-1.5 text-xs">
+                <div className="flex items-center space-x-1.5 font-bold text-amber-900 pb-1 border-b border-amber-100">
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+                  <span>📍 Preview Location</span>
+                </div>
+                <p className="text-gray-700 mt-1 font-medium">
+                  {pendingLabel || 'Click "Confirm Location" in the panel to activate.'}
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
 
         {/* User GPS Location Marker */}
         {userCoordinates && (
