@@ -99,6 +99,36 @@ def _road_accessibility(road_distance_m: float) -> float:
 
 # ───────────────── grid-capacity estimate ────────────────────────────────
 
+def _get_graph_centroid_and_radius(graph: WeightedGraph) -> Tuple[float, float, float]:
+    """Return (clat, clon, max_radius_m) for the graph, caching on graph object."""
+    cached = getattr(graph, "_cached_centroid_radius", None)
+    if cached is not None:
+        return cached
+
+    nodes = graph.nodes()
+    if not nodes:
+        return 0.0, 0.0, 1.0
+
+    lats, lons = [], []
+    for nid in nodes:
+        coords = graph.get_coordinates(nid)
+        if coords:
+            lats.append(coords[0])
+            lons.append(coords[1])
+    if not lats:
+        return 0.0, 0.0, 1.0
+
+    clat = sum(lats) / len(lats)
+    clon = sum(lons) / len(lons)
+    max_radius_m = max(
+        haversine_distance(min(lats), min(lons), max(lats), max(lons), unit="m"),
+        1.0,
+    )
+    res = (clat, clon, max_radius_m)
+    setattr(graph, "_cached_centroid_radius", res)
+    return res
+
+
 def _estimate_grid_capacity(
     candidate: CandidateLocation,
     graph: WeightedGraph,
@@ -113,33 +143,13 @@ def _estimate_grid_capacity(
     Returns (score, source) where *source* is always ``'estimated'``
     when real data is unavailable.
     """
-    nodes = graph.nodes()
-    if not nodes:
+    clat, clon, max_radius_m = _get_graph_centroid_and_radius(graph)
+    if max_radius_m <= 0:
         return 0.5, "estimated"
-
-    # Compute centroid of the network
-    lats, lons = [], []
-    for nid in nodes:
-        coords = graph.get_coordinates(nid)
-        if coords:
-            lats.append(coords[0])
-            lons.append(coords[1])
-    if not lats:
-        return 0.5, "estimated"
-
-    clat = sum(lats) / len(lats)
-    clon = sum(lons) / len(lons)
 
     dist_to_center_m = haversine_distance(
         candidate.latitude, candidate.longitude, clat, clon, unit="m",
     )
-
-    # Max radius of the network (crude bounding)
-    max_radius_m = max(
-        haversine_distance(min(lats), min(lons), max(lats), max(lons), unit="m"),
-        1.0,
-    )
-
     score = max(0.0, 1.0 - (dist_to_center_m / max_radius_m))
     return round(score, 4), "estimated"
 
@@ -150,6 +160,7 @@ def generate_candidates_from_graph(
     graph: WeightedGraph,
     data_source: str = "sample",
     node_selection: str = "intersections",
+    max_candidates: Optional[int] = None,
 ) -> List[CandidateLocation]:
     """
     Generate candidate charging-station locations from the road-network graph.
@@ -167,6 +178,8 @@ def generate_candidates_from_graph(
         'osm', 'cache', or 'sample' — propagated to each candidate.
     node_selection : str
         Strategy: 'intersections' (degree ≥ 3) or 'all'.
+    max_candidates : int, optional
+        Maximum number of candidates to return (selects highest-degree / scoring nodes).
 
     Returns
     -------
@@ -174,6 +187,9 @@ def generate_candidates_from_graph(
     """
     candidates: List[CandidateLocation] = []
     idx = 0
+
+    # Ensure graph centroid is pre-warmed
+    _get_graph_centroid_and_radius(graph)
 
     for nid in graph.nodes():
         coords = graph.get_coordinates(nid)
@@ -219,6 +235,10 @@ def generate_candidates_from_graph(
 
         candidates.append(cand)
         idx += 1
+
+    if max_candidates is not None and len(candidates) > max_candidates:
+        candidates.sort(key=lambda c: c.feasibility_score, reverse=True)
+        candidates = candidates[:max_candidates]
 
     logger.info(
         "Generated %d candidate locations from graph [%s]",

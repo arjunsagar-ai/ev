@@ -12,6 +12,8 @@ from app.api.schemas import (
     DominatingSetResponse,
     ExistingStationInfo,
     ExistingStationsResponse,
+    GeocodeResultItem,
+    GeocodeSearchResponse,
     HealthResponse,
     LiveRouteRequest,
     LiveRouteResponse,
@@ -101,6 +103,124 @@ def get_district_boundary() -> dict:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="District boundary data is currently unavailable.",
         )
+
+
+ERNAKULAM_LANDMARKS = [
+    {"place_id": "lm-kochi", "name": "Kochi", "display_name": "Kochi City Center, Ernakulam District, Kerala", "latitude": 9.9816, "longitude": 76.2999, "type": "city"},
+    {"place_id": "lm-ernakulam-south", "name": "Ernakulam South (Junction)", "display_name": "Ernakulam South Railway Station, Jos Junction, Kochi", "latitude": 9.9687, "longitude": 76.2925, "type": "station"},
+    {"place_id": "lm-ernakulam-north", "name": "Ernakulam North (Town)", "display_name": "Ernakulam North Railway Station, Kaloor, Kochi", "latitude": 9.9922, "longitude": 76.2848, "type": "station"},
+    {"place_id": "lm-marine-drive", "name": "Marine Drive", "display_name": "Marine Drive Promenade & Backwaters, Ernakulam, Kochi", "latitude": 9.9798, "longitude": 76.2757, "type": "landmark"},
+    {"place_id": "lm-mg-road", "name": "MG Road", "display_name": "Mahatma Gandhi Road, Ernakulam Central, Kochi", "latitude": 9.9715, "longitude": 76.2829, "type": "road"},
+    {"place_id": "lm-aluva", "name": "Aluva", "display_name": "Aluva Town & Metro Terminal, Ernakulam District", "latitude": 10.1076, "longitude": 76.3516, "type": "town"},
+    {"place_id": "lm-kakkanad", "name": "Kakkanad (Infopark)", "display_name": "Kakkanad & Infopark IT Corridor, Kochi", "latitude": 10.0159, "longitude": 76.3419, "type": "suburb"},
+    {"place_id": "lm-edappally", "name": "Edappally", "display_name": "Edappally Junction & Lulu Mall Area, Kochi", "latitude": 10.0261, "longitude": 76.3086, "type": "junction"},
+    {"place_id": "lm-palarivattom", "name": "Palarivattom", "display_name": "Palarivattom Junction & Bypass, Kochi", "latitude": 10.0055, "longitude": 76.3075, "type": "suburb"},
+    {"place_id": "lm-vyttila", "name": "Vyttila Mobility Hub", "display_name": "Vyttila Mobility Hub & Multi-Modal Terminal, Kochi", "latitude": 9.9684, "longitude": 76.3197, "type": "transit"},
+    {"place_id": "lm-kalamassery", "name": "Kalamassery", "display_name": "Kalamassery Industrial & CUSAT University, Kochi", "latitude": 10.0537, "longitude": 76.3219, "type": "town"},
+    {"place_id": "lm-tripunithura", "name": "Tripunithura", "display_name": "Tripunithura Royal Heritage Town, Ernakulam", "latitude": 9.9472, "longitude": 76.3458, "type": "town"},
+    {"place_id": "lm-angamaly", "name": "Angamaly", "display_name": "Angamaly Gateway Town, Ernakulam District", "latitude": 10.1960, "longitude": 76.3860, "type": "town"},
+    {"place_id": "lm-perumbavoor", "name": "Perumbavoor", "display_name": "Perumbavoor Town, Ernakulam District", "latitude": 10.1118, "longitude": 76.4756, "type": "town"},
+    {"place_id": "lm-muvattupuzha", "name": "Muvattupuzha", "display_name": "Muvattupuzha Municipal Town, Ernakulam District", "latitude": 9.9894, "longitude": 76.5790, "type": "town"},
+    {"place_id": "lm-kothamangalam", "name": "Kothamangalam", "display_name": "Kothamangalam Gateway, Ernakulam District", "latitude": 10.0614, "longitude": 76.6239, "type": "town"},
+    {"place_id": "lm-paravur", "name": "North Paravur", "display_name": "North Paravur Heritage Town, Ernakulam District", "latitude": 10.1472, "longitude": 76.2292, "type": "town"},
+    {"place_id": "lm-piravom", "name": "Piravom", "display_name": "Piravom Town, Ernakulam District", "latitude": 9.8732, "longitude": 76.4925, "type": "town"},
+    {"place_id": "lm-kaloor", "name": "Kaloor", "display_name": "Kaloor Stadium Hub, Kochi", "latitude": 9.9984, "longitude": 76.2999, "type": "suburb"},
+    {"place_id": "lm-panampilly", "name": "Panampilly Nagar", "display_name": "Panampilly Nagar, Kochi", "latitude": 9.9610, "longitude": 76.2952, "type": "suburb"},
+    {"place_id": "lm-thrikkakara", "name": "Thrikkakara", "display_name": "Thrikkakara Municipal Area, Kochi", "latitude": 10.0382, "longitude": 76.3312, "type": "suburb"},
+    {"place_id": "lm-cial", "name": "Cochin International Airport (CIAL)", "display_name": "CIAL Airport, Nedumbassery, Ernakulam District", "latitude": 10.1518, "longitude": 76.3930, "type": "airport"},
+]
+
+
+@router.get(
+    "/gis/search",
+    response_model=GeocodeSearchResponse,
+    summary="Search locations within Ernakulam District",
+    description="Geocodes addresses or localities in Ernakulam with local landmark database and online fallback.",
+)
+def search_gis_locations(q: str = "") -> GeocodeSearchResponse:
+    """Search for places, suburbs, and landmarks inside Ernakulam District."""
+    from app.gis.ernakulam_boundary import is_point_in_ernakulam
+    import urllib.request
+    import json
+
+    query = q.strip().lower()
+    results: list[GeocodeResultItem] = []
+    seen_keys: set[str] = set()
+
+    def add_item(place_id: str, name: str, display_name: str, lat: float, lon: float, item_type: str = "locality"):
+        key = f"{round(lat, 4)},{round(lon, 4)}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            results.append(GeocodeResultItem(
+                place_id=place_id,
+                name=name,
+                display_name=display_name,
+                latitude=lat,
+                longitude=lon,
+                type=item_type,
+            ))
+
+    # 1. Match local landmarks
+    for lm in ERNAKULAM_LANDMARKS:
+        if not query or query in lm["name"].lower() or query in lm["display_name"].lower():
+            add_item(lm["place_id"], lm["name"], lm["display_name"], lm["latitude"], lm["longitude"], lm["type"])
+
+    # 2. Match verified real charging stations from dataset
+    try:
+        real_stations = load_ernakulam_ev_stations()
+        for st in real_stations:
+            if query and (query in st.name.lower() or query in st.address.lower() or query in st.city.lower()):
+                add_item(
+                    f"stn-{st.station_id}",
+                    st.name,
+                    f"{st.name}, {st.address or st.city}",
+                    st.latitude,
+                    st.longitude,
+                    "ev_station",
+                )
+    except Exception as exc:
+        logger.debug("Failed searching real stations: %s", exc)
+
+    # 3. If online search requested and local matches are few, query Nominatim with proper User-Agent
+    if query and len(results) < 5:
+        try:
+            url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=5&addressdetails=1&countrycodes=in&viewbox=76.16,10.31,76.85,9.78&bounded=0"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "EV-Charging-Optimizer/1.0 (ev-navigation-project; contact: arjunajusagar@gmail.com)",
+                    "Accept": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        try:
+                            lat = float(item["lat"])
+                            lon = float(item["lon"])
+                            # Verify inside Ernakulam District
+                            if is_point_in_ernakulam(lat, lon):
+                                parts = (item.get("display_name") or "").split(",")
+                                name = item.get("name") or parts[0].strip() or "Selected Place"
+                                add_item(
+                                    str(item.get("place_id", f"{lat},{lon}")),
+                                    name,
+                                    item.get("display_name", name),
+                                    lat,
+                                    lon,
+                                    item.get("type", "location"),
+                                )
+                        except (ValueError, KeyError):
+                            continue
+        except Exception as exc:
+            logger.debug("Nominatim online search skipped/timed out: %s", exc)
+
+    return GeocodeSearchResponse(
+        query=q,
+        total_found=len(results),
+        results=results[:10],
+    )
 
 
 @router.get(

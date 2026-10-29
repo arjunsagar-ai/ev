@@ -47,20 +47,38 @@ def dijkstra_shortest_path(
             "execution_time": elapsed,
         }
 
-    # Distance table: distance from source to each discovered node
-    distances: Dict[Any, float] = {node: float("inf") for node in graph.nodes()}
-    distances[source] = 0.0
+    # Fast-check for disconnected components if precomputed on graph
+    comp_map = getattr(graph, "_component_map", None)
+    if comp_map is not None:
+        source_comp = comp_map.get(source)
+        target_comp = comp_map.get(target)
+        if source_comp is not None and target_comp is not None and source_comp != target_comp:
+            elapsed = time.perf_counter() - start_time
+            return {
+                "path": [],
+                "total_distance": float("inf"),
+                "visited_nodes": [],
+                "execution_time": elapsed,
+            }
+
+    # Distance table: distance from source to discovered nodes (on-demand to avoid allocating large tables)
+    distances: Dict[Any, float] = {source: 0.0}
 
     # Predecessor mapping for path reconstruction
-    predecessors: Dict[Any, Optional[Any]] = {node: None for node in graph.nodes()}
+    predecessors: Dict[Any, Optional[Any]] = {source: None}
 
-    # Min-priority queue storing tuples: (distance, node)
-    pq: List[tuple[float, Any]] = [(0.0, source)]
+    # Check for target node coordinates for A* heuristic
+    t_coords = graph.get_coordinates(target) if hasattr(graph, "get_coordinates") else None
+    has_heuristic = t_coords is not None
+    t_lat, t_lon = t_coords if has_heuristic else (0.0, 0.0)
+
+    # Min-priority queue storing tuples: (priority, distance, node)
+    pq: List[tuple[float, float, Any]] = [(0.0, 0.0, source)]
     settled: set[Any] = set()
     visited_nodes: List[Any] = []
 
     while pq:
-        curr_dist, u = heapq.heappop(pq)
+        _, curr_dist, u = heapq.heappop(pq)
 
         if u in settled:
             continue
@@ -72,19 +90,27 @@ def dijkstra_shortest_path(
             break
 
         # If current distance is worse than recorded best, skip
-        if curr_dist > distances[u]:
+        if curr_dist > distances.get(u, float("inf")):
             continue
 
         # Relax incident edges
         for neighbor, weight in graph.get_neighbors(u).items():
             new_dist = curr_dist + weight
-            if new_dist < distances[neighbor]:
+            if neighbor not in distances or new_dist < distances[neighbor]:
                 distances[neighbor] = new_dist
                 predecessors[neighbor] = u
-                heapq.heappush(pq, (new_dist, neighbor))
+                h = 0.0
+                if has_heuristic:
+                    nc = graph.get_coordinates(neighbor)
+                    if nc:
+                        import math
+                        dlat = abs(t_lat - nc[0]) * 110.0
+                        dlon = abs(t_lon - nc[1]) * 108.0
+                        h = math.hypot(dlat, dlon)
+                heapq.heappush(pq, (new_dist + h, new_dist, neighbor))
 
     # Path reconstruction
-    if distances[target] == float("inf"):
+    if target not in distances:
         path: List[Any] = []
         total_dist = float("inf")
     else:
@@ -92,7 +118,7 @@ def dijkstra_shortest_path(
         curr = target
         while curr is not None:
             path.append(curr)
-            curr = predecessors[curr]
+            curr = predecessors.get(curr)
         path.reverse()
         total_dist = distances[target]
 

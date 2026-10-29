@@ -164,6 +164,22 @@ export const LocationCard: React.FC<LocationCardProps> = ({
     }
   };
 
+  const handleSelectPreset = (preset: { label: string; latitude: number; longitude: number }) => {
+    setSearchError(null);
+    onConfirmLocation(
+      { latitude: preset.latitude, longitude: preset.longitude },
+      'search',
+      preset.label
+    );
+  };
+
+  const QUICK_PRESETS = [
+    { label: 'Kochi (Center)', latitude: 9.9816, longitude: 76.2999 },
+    { label: 'Aluva', latitude: 10.1076, longitude: 76.3516 },
+    { label: 'Kakkanad', latitude: 10.0159, longitude: 76.3419 },
+    { label: 'Edappally', latitude: 10.0261, longitude: 76.3086 },
+  ];
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200/90 shadow-md p-4 transition-all">
       {/* Header */}
@@ -185,6 +201,23 @@ export const LocationCard: React.FC<LocationCardProps> = ({
           </span>
         )}
       </div>
+
+      {/* Global Notice if Error Exists */}
+      {searchError && (
+        <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-rose-800 text-xs flex items-start justify-between space-x-2">
+          <div className="flex items-start space-x-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <span>{searchError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSearchError(null)}
+            className="text-rose-500 hover:text-rose-700"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* ── Mode 1: Confirmed Location Active ── */}
       {locationSelection && !isSearching && !isSelectingOnMap && !pendingCoordinates && (
@@ -318,6 +351,32 @@ export const LocationCard: React.FC<LocationCardProps> = ({
                 {isSearchLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Go'}
               </button>
             </div>
+
+            {/* Quick Suggestions Chips */}
+            <div className="flex flex-wrap gap-1 pt-1">
+              {['Kochi', 'Aluva', 'Kakkanad', 'Edappally', 'Vyttila'].map((place) => (
+                <button
+                  key={`chip-${place}`}
+                  type="button"
+                  onClick={async () => {
+                    setSearchQuery(place);
+                    setIsSearchLoading(true);
+                    setSearchError(null);
+                    try {
+                      const results = await searchLocation(place);
+                      setSearchResults(results);
+                    } catch (err: any) {
+                      setSearchError(err?.message || 'Search failed');
+                    } finally {
+                      setIsSearchLoading(false);
+                    }
+                  }}
+                  className="px-2 py-0.5 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-gray-200 rounded-full text-[10px] text-gray-600 transition-colors"
+                >
+                  {place}
+                </button>
+              ))}
+            </div>
           </form>
 
           {/* Search Error Feedback */}
@@ -411,6 +470,18 @@ export const LocationCard: React.FC<LocationCardProps> = ({
             )}
           </button>
 
+          {/* Quick Demo Location Option when GPS fails */}
+          {liveGpsError && (
+            <button
+              type="button"
+              onClick={() => handleSelectPreset(QUICK_PRESETS[0])}
+              className="w-full inline-flex items-center justify-center px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-xl transition-all shadow-xs"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600" />
+              <span>Use Kochi (Demo Location)</span>
+            </button>
+          )}
+
           {/* Secondary Action B: Search Location */}
           <button
             type="button"
@@ -430,6 +501,25 @@ export const LocationCard: React.FC<LocationCardProps> = ({
             <MapIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
             <span>Choose on Map</span>
           </button>
+
+          {/* Quick Preset Destinations in Ernakulam */}
+          <div className="pt-2 border-t border-gray-100">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+              Quick Locations in Ernakulam:
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {QUICK_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => handleSelectPreset(p)}
+                  className="px-2.5 py-1.5 text-[11px] font-semibold text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-gray-200 rounded-lg text-left truncate transition-colors"
+                >
+                  📍 {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

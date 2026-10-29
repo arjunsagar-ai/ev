@@ -101,6 +101,11 @@ class InfrastructureService:
                     "nearest_road_node": c.nearest_road_node,
                     "feasibility_score": c.feasibility_score,
                 })
+
+            if max_stations is not None and len(resolved_stations) > max_stations:
+                resolved_stations = resolved_stations[:max_stations]
+            elif cost_metric == "network_distance_km" and len(resolved_stations) > 8:
+                resolved_stations = resolved_stations[:8]
         else:
             # Station IDs not supplied: resolve dynamically via MDS
             sos = self._get_station_optimization_service()

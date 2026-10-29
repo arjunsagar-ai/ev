@@ -14,7 +14,7 @@ from app.algorithms.dijkstra import dijkstra_shortest_path
 from app.algorithms.hungarian import hungarian_algorithm
 from app.core.config import settings
 from app.gis.models import CandidateLocation
-from app.gis.spatial_index import find_nearest_road_node, validate_coordinates
+from app.gis.spatial_index import snap_coordinates_to_road, find_nearest_road_node, validate_coordinates
 from app.graph.weighted_graph import WeightedGraph
 from app.services.routing_service import RoutingService, get_routing_service
 from app.services.station_optimization_service import (
@@ -122,13 +122,19 @@ class AssignmentService:
                     "nearest_road_node": c.nearest_road_node,
                     "feasibility_score": c.feasibility_score,
                 })
+
+            if max_stations is not None and len(resolved_stations) > max_stations:
+                resolved_stations = resolved_stations[:max_stations]
+            elif cost_metric == "network_distance_km" and len(resolved_stations) > 10:
+                resolved_stations = resolved_stations[:10]
         else:
             # Station IDs not supplied: resolve dynamically via MDS
             sos = self._get_station_optimization_service()
+            dyn_max_stations = max_stations if max_stations is not None else min(len(all_candidates), max(len(validated_evs) * 2, 5))
             mds_res = sos.optimize_station_placement(
                 coverage_radius_km=coverage_radius_km,
                 min_feasibility_score=min_feasibility_score,
-                max_stations=max_stations,
+                max_stations=dyn_max_stations,
                 graph=active_graph,
                 candidates=all_candidates,
             )
@@ -185,12 +191,13 @@ class AssignmentService:
 
             for ev in validated_evs:
                 try:
-                    nearest = find_nearest_road_node(active_graph, ev["latitude"], ev["longitude"])
-                    # Check max snapping distance
-                    if nearest["distance_m"] > settings.MAX_SNAP_DISTANCE_M:
-                        can_use_network = False
-                        break
-                    snapped_ev_nodes.append(nearest["node_id"])
+                    snap_res = snap_coordinates_to_road(
+                        active_graph,
+                        ev["latitude"],
+                        ev["longitude"],
+                        max_distance_m=settings.MAX_SNAP_DISTANCE_M,
+                    )
+                    snapped_ev_nodes.append(snap_res["nearest_node"]["id"])
                 except Exception:
                     can_use_network = False
                     break

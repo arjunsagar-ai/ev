@@ -116,6 +116,7 @@ class RoutingService:
             self._graph,
             data_source=source,
             node_selection="intersections",
+            max_candidates=200,
         )
         # Fallback to all nodes if no intersections found (e.g. tiny graph)
         if not raw_candidates:
@@ -123,6 +124,7 @@ class RoutingService:
                 self._graph,
                 data_source=source,
                 node_selection="all",
+                max_candidates=200,
             )
 
         filtered = filter_feasible_candidates(raw_candidates)
@@ -180,26 +182,40 @@ class RoutingService:
         except Exception:
             snapped_node_id = None
 
+        if not hasattr(self, "_station_snaps_cache"):
+            self._station_snaps_cache = {}
+
         station_results = []
         for stn in real_stations:
+            # Straight-line distance check: road distance can never be shorter than great-circle distance
+            h_dist = haversine_distance(latitude, longitude, stn.latitude, stn.longitude, unit="km")
+            if h_dist > search_radius:
+                continue
+
             network_dist = float("inf")
             target_node = None
             if snapped_node_id is not None:
-                try:
-                    target_snap = find_nearest_road_node(graph, stn.latitude, stn.longitude)
+                if stn.station_id in self._station_snaps_cache:
+                    target_snap = self._station_snaps_cache[stn.station_id]
+                else:
+                    try:
+                        target_snap = find_nearest_road_node(graph, stn.latitude, stn.longitude)
+                        self._station_snaps_cache[stn.station_id] = target_snap
+                    except Exception:
+                        target_snap = None
+
+                if target_snap is not None:
                     target_node = target_snap["node_id"]
-                    dijkstra_res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
-                    network_dist = dijkstra_res["total_distance"]
-                except Exception:
-                    pass
+                    try:
+                        dijkstra_res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
+                        network_dist = dijkstra_res["total_distance"]
+                    except Exception:
+                        pass
 
             if network_dist != float("inf"):
                 dist_km = round(network_dist, 2)
             else:
-                dist_km = round(
-                    haversine_distance(latitude, longitude, stn.latitude, stn.longitude, unit="km"),
-                    2,
-                )
+                dist_km = round(h_dist, 2)
 
             if dist_km <= search_radius:
                 station_results.append({
@@ -286,9 +302,30 @@ class RoutingService:
         use_real_stations = (meta.data_source in ("osm", "cache")) and not self._explicit_candidates
         if use_real_stations:
             real_stations = load_ernakulam_ev_stations()
+            if not hasattr(self, "_station_snaps_cache"):
+                self._station_snaps_cache = {}
+
+            # Sort by great-circle distance first
+            stations_with_dist = []
             for rstn in real_stations:
+                h = haversine_distance(latitude, longitude, rstn.latitude, rstn.longitude, unit="km")
+                stations_with_dist.append((rstn, h))
+            stations_with_dist.sort(key=lambda x: x[1])
+
+            for rstn, h_dist in stations_with_dist:
+                # Branch-and-bound prune: road distance can NEVER be less than straight-line distance
+                if h_dist >= min_graph_distance:
+                    break
+                if max_station_distance_km is not None and h_dist > max_station_distance_km:
+                    break
+
                 try:
-                    stn_snap = find_nearest_road_node(graph, rstn.latitude, rstn.longitude)
+                    if rstn.station_id in self._station_snaps_cache:
+                        stn_snap = self._station_snaps_cache[rstn.station_id]
+                    else:
+                        stn_snap = find_nearest_road_node(graph, rstn.latitude, rstn.longitude)
+                        self._station_snaps_cache[rstn.station_id] = stn_snap
+
                     target_node = stn_snap["node_id"]
                     res = dijkstra_shortest_path(graph, source=snapped_node_id, target=target_node)
                     dist = res["total_distance"]
@@ -320,7 +357,19 @@ class RoutingService:
             if not candidates:
                 raise LookupError("No feasible EV charging stations available in the network.")
 
+            # Sort candidates by straight-line distance
+            cands_with_dist = []
             for cand in candidates:
+                h = haversine_distance(latitude, longitude, cand.latitude, cand.longitude, unit="km")
+                cands_with_dist.append((cand, h))
+            cands_with_dist.sort(key=lambda x: x[1])
+
+            for cand, h_dist in cands_with_dist:
+                if h_dist >= min_graph_distance:
+                    break
+                if max_station_distance_km is not None and h_dist > max_station_distance_km:
+                    break
+
                 target_node = cand.nearest_road_node
                 if target_node is None or not graph.has_node(target_node):
                     continue

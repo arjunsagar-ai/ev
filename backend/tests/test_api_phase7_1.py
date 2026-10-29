@@ -67,3 +67,23 @@ class TestPhase71API:
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("project_area") == "Ernakulam District"
+
+    def test_gis_search_kochi(self, client):
+        resp = client.get("/api/gis/search?q=kochi")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_found"] > 0
+        assert any("kochi" in r["name"].lower() for r in data["results"])
+
+    def test_gis_search_aluva(self, client):
+        resp = client.get("/api/gis/search?q=aluva")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_found"] > 0
+        assert any("aluva" in r["name"].lower() for r in data["results"])
+
+    def test_gis_search_empty_query_returns_prominent_places(self, client):
+        resp = client.get("/api/gis/search?q=")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_found"] > 0

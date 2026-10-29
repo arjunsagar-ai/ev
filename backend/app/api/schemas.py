@@ -452,3 +452,18 @@ class NearbyStationsResponse(BaseModel):
     total_found: int = Field(..., description="Total stations found within search radius")
     stations: List[ExistingStationInfo] = Field(..., description="Nearby existing stations ordered by distance")
     message: Optional[str] = Field(None, description="Guidance or status message")
+
+
+class GeocodeResultItem(BaseModel):
+    place_id: str = Field(..., description="Unique identifier for the location")
+    name: str = Field(..., description="Primary name of the place or landmark")
+    display_name: str = Field(..., description="Full formatted address or descriptive label")
+    latitude: float = Field(..., description="Latitude coordinate")
+    longitude: float = Field(..., description="Longitude coordinate")
+    type: str = Field("locality", description="Type of place/landmark")
+
+
+class GeocodeSearchResponse(BaseModel):
+    query: str = Field(..., description="Search query string")
+    total_found: int = Field(..., description="Total locations found")
+    results: List[GeocodeResultItem] = Field(..., description="Matching locations within Ernakulam")

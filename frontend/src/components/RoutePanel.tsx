@@ -270,49 +270,65 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
             <span>Location</span>
           </div>
           <span className="text-gray-300">→</span>
-          <div className={`flex items-center space-x-1 ${mdsResponse ? 'text-purple-700 font-bold' : locationSelection ? 'text-gray-800' : 'text-gray-400'}`}>
+          <button
+            type="button"
+            onClick={onOptimizeMds}
+            className={`flex items-center space-x-1 hover:opacity-80 transition-opacity ${mdsResponse ? 'text-purple-700 font-bold' : 'text-gray-700'}`}
+          >
             <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-              mdsResponse ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'
+              mdsResponse ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700 font-bold'
             }`}>
               2
             </span>
             <span>Stations</span>
-          </div>
+          </button>
           <span className="text-gray-300">→</span>
-          <div className={`flex items-center space-x-1 ${hungarianResponse ? 'text-amber-700 font-bold' : mdsResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+          <button
+            type="button"
+            onClick={onAssignHungarian}
+            className={`flex items-center space-x-1 hover:opacity-80 transition-opacity ${hungarianResponse ? 'text-amber-700 font-bold' : 'text-gray-700'}`}
+          >
             <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-              hungarianResponse ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-600'
+              hungarianResponse ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-700 font-bold'
             }`}>
               3
             </span>
             <span>EVs</span>
-          </div>
+          </button>
           <span className="text-gray-300">→</span>
-          <div className={`flex items-center space-x-1 ${infraResponse ? 'text-teal-700 font-bold' : mdsResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+          <button
+            type="button"
+            onClick={onOptimizeInfrastructure}
+            className={`flex items-center space-x-1 hover:opacity-80 transition-opacity ${infraResponse ? 'text-teal-700 font-bold' : 'text-gray-700'}`}
+          >
             <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-              infraResponse ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-600'
+              infraResponse ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-700 font-bold'
             }`}>
               4
             </span>
             <span>MST</span>
-          </div>
+          </button>
           <span className="text-gray-300">→</span>
-          <div className={`flex items-center space-x-1 ${capacityResponse ? 'text-violet-700 font-bold' : hungarianResponse ? 'text-gray-800' : 'text-gray-400'}`}>
+          <button
+            type="button"
+            onClick={onAnalyzeCapacity}
+            className={`flex items-center space-x-1 hover:opacity-80 transition-opacity ${capacityResponse ? 'text-violet-700 font-bold' : 'text-gray-700'}`}
+          >
             <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-              capacityResponse ? 'bg-violet-600 text-white' : 'bg-gray-200 text-gray-600'
+              capacityResponse ? 'bg-violet-600 text-white' : 'bg-gray-200 text-gray-700 font-bold'
             }`}>
               5
             </span>
             <span>Capacity</span>
-          </div>
+          </button>
         </div>
       </div>
 
       {/* ── Optimization Actions ── */}
       <div className="space-y-3">
         {!locationSelection && (
-          <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-center text-xs text-amber-800 font-medium">
-            📍 Set your location first to enable charging station optimization.
+          <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl text-center text-xs text-blue-800 font-medium">
+            💡 Set your location to calculate a direct route, or click any network optimization button below:
           </div>
         )}
 
@@ -321,7 +337,7 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           <button
             type="button"
             onClick={onOptimizeMds}
-            disabled={!locationSelection || mdsLoading || isLoading}
+            disabled={mdsLoading || isLoading}
             className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-purple-200
               text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
               focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 bg-purple-50 hover:bg-purple-100
@@ -349,7 +365,7 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           <button
             type="button"
             onClick={onAssignHungarian}
-            disabled={!locationSelection || hungarianLoading || isLoading}
+            disabled={hungarianLoading || isLoading}
             className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-amber-200
               text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
               focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 bg-amber-50 hover:bg-amber-100
@@ -377,7 +393,7 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           <button
             type="button"
             onClick={onOptimizeInfrastructure}
-            disabled={!locationSelection || infraLoading || isLoading}
+            disabled={infraLoading || isLoading}
             className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-teal-200
               text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
               focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 bg-teal-50 hover:bg-teal-100
@@ -405,7 +421,7 @@ export const RoutePanel: React.FC<RoutePanelProps> = ({
           <button
             type="button"
             onClick={onAnalyzeCapacity}
-            disabled={!locationSelection || capacityLoading || isLoading}
+            disabled={capacityLoading || isLoading}
             className="w-full inline-flex items-center justify-center px-4 py-2.5 border border-violet-200
               text-xs font-bold rounded-xl shadow-xs transition-all duration-200 focus:outline-none
               focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 bg-violet-50 hover:bg-violet-100

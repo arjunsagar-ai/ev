@@ -246,11 +246,10 @@ const MapAutoBounds: React.FC<{
       }
     }
 
-    // 3. If Hungarian assignments exist and changed (and no active route), fit view to assignments
+    // 3. If Hungarian assignments exist and changed, fit view to assignments
     if (
       hungarianResponse?.assignments &&
-      hungarianResponse.assignments.length > 0 &&
-      (!routeCoordinates || routeCoordinates.length === 0)
+      hungarianResponse.assignments.length > 0
     ) {
       const hKey = hungarianResponse.assignments.map((a) => `${a.ev_id}->${a.station_id}`).join(',');
       if (hKey !== prevHungarianRef.current) {
@@ -341,8 +340,8 @@ export const MapView: React.FC<MapViewProps> = ({
         scrollWheelZoom={true}
         className={`w-full h-full ${isSelectingOnMap ? 'cursor-crosshair' : ''}`}
       >
-        {/* Map Click Handler for "Choose on Map" mode */}
-        <MapClickHandler active={!!isSelectingOnMap} onMapClick={onMapClick} />
+        {/* Map Click Handler — always active so clicking anywhere on the map selects location */}
+        <MapClickHandler active={true} onMapClick={onMapClick} />
 
         {/* OpenStreetMap Standard Vector Tiles */}
         <TileLayer

@@ -4,7 +4,25 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.main import app
+from app.gis.models import RoadNetworkMetadata
+from app.gis.osm_loader import build_sample_road_network
 from app.services.routing_service import get_routing_service
+
+
+@pytest.fixture(autouse=True)
+def setup_sample_routing_service():
+    """Ensure routing service uses deterministic sample network for API tests."""
+    graph, source = build_sample_road_network()
+    meta = RoadNetworkMetadata(
+        data_source=source,
+        num_nodes=graph.num_nodes(),
+        num_edges=graph.num_edges(),
+        load_time_seconds=0.01,
+    )
+    service = get_routing_service()
+    service.set_network(graph, meta)
+    yield service
+
 
 client = TestClient(app)
 

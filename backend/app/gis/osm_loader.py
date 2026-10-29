@@ -206,7 +206,32 @@ def _build_graph_from_osm(osm_data: Dict[str, Any]) -> WeightedGraph:
                     road_name=road_name,
                 )
 
+    _tag_connected_components(graph)
     return graph
+
+
+def _tag_connected_components(graph: WeightedGraph) -> None:
+    """Precompute and attach connected-component mappings to the graph."""
+    visited = set()
+    comps = []
+    for n in graph.nodes():
+        if n not in visited:
+            comp = []
+            q = [n]
+            visited.add(n)
+            while q:
+                curr = q.pop()
+                comp.append(curr)
+                for nbr in graph.get_neighbors(curr):
+                    if nbr not in visited:
+                        visited.add(nbr)
+                        q.append(nbr)
+            comps.append(comp)
+
+    comps.sort(key=len, reverse=True)
+    comp_map = {n: cid for cid, comp in enumerate(comps) for n in comp}
+    setattr(graph, "_component_map", comp_map)
+    setattr(graph, "_component_sizes", [len(c) for c in comps])
 
 
 # ───────────────────── sample / fallback network ─────────────────────────

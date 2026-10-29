@@ -264,11 +264,10 @@ export const App: React.FC = () => {
   };
 
   const handleMapClick = (coords: [number, number]) => {
-    if (isSelectingOnMap) {
-      const [lat, lon] = coords;
-      setPendingCoordinates({ latitude: lat, longitude: lon });
-      setPendingLabel('Selected on Map');
-    }
+    const [lat, lon] = coords;
+    setPendingCoordinates({ latitude: lat, longitude: lon });
+    setPendingLabel('Selected on Map');
+    setIsSelectingOnMap(true);
   };
 
   /**
@@ -333,16 +332,19 @@ export const App: React.FC = () => {
           { ev_id: 'Fleet-EV3', latitude: 10.007, longitude: 76.312 },
         ];
 
-    const stationIds = mdsResponse?.selected_stations?.map((s) => s.candidate_id);
+    // Pick top 5 stations from MDS if available to keep matching fast
+    const stationIds = mdsResponse?.selected_stations?.slice(0, 5).map((s) => s.candidate_id);
 
     try {
       const result = await fetchHungarianAssignment({
         evs: evList,
         station_ids: stationIds && stationIds.length > 0 ? stationIds : undefined,
-        coverage_radius_km: 0.5,
+        coverage_radius_km: 5.0,
+        max_stations: 5,
         cost_metric: 'network_distance_km',
       });
       setHungarianResponse(result);
+      return result;
     } catch (err: unknown) {
       setHungarianResponse(null);
       if (err instanceof Error) {
@@ -350,6 +352,7 @@ export const App: React.FC = () => {
       } else {
         setHungarianError('An error occurred calculating Hungarian EV assignments.');
       }
+      throw err;
     } finally {
       setHungarianLoading(false);
     }
@@ -362,20 +365,24 @@ export const App: React.FC = () => {
 
   /**
    * Phase 5C: Minimum Spanning Tree (MST) Infrastructure Optimization using Prim's algorithm.
+   * Auto-triggers MDS station placement if not yet computed.
    */
   const handleOptimizeInfrastructure = async () => {
     setInfraError(null);
-
-    // Ensure MDS stations have been selected first
-    if (!mdsResponse?.selected_stations || mdsResponse.selected_stations.length === 0) {
-      setInfraError('Run station optimization first.');
-      return;
-    }
-
     setInfraLoading(true);
-    const stationIds = mdsResponse.selected_stations.map((s) => s.candidate_id);
 
     try {
+      let stations = mdsResponse?.selected_stations;
+      if (!stations || stations.length === 0) {
+        // Auto-compute MDS stations first so the user isn't blocked
+        const mdsRes = await fetchDominatingSetOptimization();
+        setMdsResponse(mdsRes);
+        stations = mdsRes.selected_stations;
+      }
+
+      // Cap to top 6 stations to compute MST in real-time
+      const stationIds = stations.slice(0, 6).map((s) => s.candidate_id);
+
       const result = await fetchInfrastructureOptimization({
         station_ids: stationIds,
         cost_metric: 'network_distance_km',
@@ -400,45 +407,47 @@ export const App: React.FC = () => {
 
   /**
    * Phase 6: Ford-Fulkerson Max-Flow — Analyze EV charging capacity and bottlenecks.
-   * Requires Hungarian assignments to be available first (builds the EV→Station graph).
-   * All capacity values are simulated — not real electrical grid data.
+   * Auto-triggers Hungarian assignments if not yet computed.
    */
   const handleAnalyzeCapacity = async () => {
     setCapacityError(null);
-
-    // Require Hungarian assignments first
-    if (!hungarianResponse?.assignments || hungarianResponse.assignments.length === 0) {
-      setCapacityError('Run EV assignment (Hungarian) first to build the capacity flow graph.');
-      return;
-    }
-
     setCapacityLoading(true);
 
-    // Build EV list from assignments (unique EVs)
-    const evMap = new Map<string, number>();
-    for (const a of hungarianResponse.assignments) {
-      evMap.set(a.ev_id, 1); // demand_units = 1 per EV (simulated)
-    }
-    const evs = Array.from(evMap.entries()).map(([ev_id, demand_units]) => ({
-      ev_id,
-      demand_units,
-    }));
-
-    // Build station list from MDS or Hungarian station IDs
-    const stationIds = mdsResponse?.selected_stations?.map((s) => s.candidate_id)
-      ?? [...new Set(hungarianResponse.assignments.map((a) => a.station_id))];
-    const stations = stationIds.map((station_id) => ({
-      station_id,
-      capacity_units: 3, // simulated capacity per station
-    }));
-
-    // Build assignments list from Hungarian result
-    const assignments = hungarianResponse.assignments.map((a) => ({
-      ev_id: a.ev_id,
-      station_id: a.station_id,
-    }));
-
     try {
+      let currentHungarian = hungarianResponse;
+      if (!currentHungarian?.assignments || currentHungarian.assignments.length === 0) {
+        // Auto-run Hungarian matching first
+        currentHungarian = await handleAssignHungarian();
+      }
+
+      if (!currentHungarian?.assignments || currentHungarian.assignments.length === 0) {
+        throw new Error('Unable to generate EV assignments for capacity analysis.');
+      }
+
+      // Build EV list from assignments (unique EVs)
+      const evMap = new Map<string, number>();
+      for (const a of currentHungarian.assignments) {
+        evMap.set(a.ev_id, 1);
+      }
+      const evs = Array.from(evMap.entries()).map(([ev_id, demand_units]) => ({
+        ev_id,
+        demand_units,
+      }));
+
+      // Build station list from MDS or Hungarian station IDs
+      const stationIds = mdsResponse?.selected_stations?.slice(0, 5).map((s) => s.candidate_id)
+        ?? [...new Set(currentHungarian.assignments.map((a) => a.station_id))];
+      const stations = stationIds.map((station_id) => ({
+        station_id,
+        capacity_units: 3, // simulated capacity per station
+      }));
+
+      // Build assignments list from Hungarian result
+      const assignments = currentHungarian.assignments.map((a) => ({
+        ev_id: a.ev_id,
+        station_id: a.station_id,
+      }));
+
       const result = await fetchCapacityOptimization({ evs, stations, assignments });
       setCapacityResponse(result);
     } catch (err: unknown) {
